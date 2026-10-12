@@ -144,7 +144,7 @@ export function IssuesScreen({
       muted: { color: theme.colors.foregroundMuted, fontSize: 13 },
       error: { color: theme.colors.statusDanger },
       iconButton: { padding: 8, borderRadius: 6 },
-      // Closes an open create menu when anything outside it is pressed.
+      // Closes an open filter menu when anything outside it is pressed.
       backdrop: { position: "absolute" as const, top: 0, left: 0, right: 0, bottom: 0, zIndex: 5 },
     };
   }, [theme, layout.compact]);
@@ -153,8 +153,12 @@ export function IssuesScreen({
 
   return (
     <ScrollView ref={scroller} style={s.screen} contentContainerStyle={s.content}>
-      {createMenu !== null ? (
-        <Pressable accessibilityLabel="Close menu" onPress={() => setCreateMenu(null)} style={s.backdrop} />
+      {openMenu || createMenu !== null ? (
+        <Pressable
+          accessibilityLabel={openMenu ? "Close filter menu" : "Close menu"}
+          onPress={() => setOpenMenu(null)}
+          style={s.backdrop}
+        />
       ) : null}
       {showTabs ? (
         <ProjectSelector
@@ -199,7 +203,7 @@ export function IssuesScreen({
 
       {selected ? (
         <>
-          {/* Above the screen's dismiss layer, so an issue's create menu can be pressed. */}
+          {/* Above the screen's dismiss layer, so the header's dropdown can be pressed. */}
           <View style={{ zIndex: 6 }}>
             <RepoTable
               project={selected}
@@ -221,8 +225,10 @@ export function IssuesScreen({
                 prefs.agent ||
                 (selected.remote ? `${selected.remote.hostLabel}'s default agent` : "the host's default agent")
               }
+              menuOpen={openMenu !== null}
             createMenuFor={createMenu}
             onCreateMenu={openCreateMenu}
+              onDismissMenu={() => setOpenMenu(null)}
               headerControls={
                 <FilterControls
                   repo={selected.repo}

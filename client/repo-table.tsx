@@ -32,6 +32,8 @@ export function RepoTable({
   onCreate,
   agentLabel,
   headerControls,
+  menuOpen = false,
+  onDismissMenu,
   createMenuFor = null,
   onCreateMenu,
   theme,
@@ -53,6 +55,9 @@ export function RepoTable({
   agentLabel: string;
   /** Filters and density, shown at the right of the header as on github.com. */
   headerControls?: ReactNode;
+  /** A header menu is open: the rows are covered so pressing them closes it. */
+  menuOpen?: boolean;
+  onDismissMenu?: () => void;
   /** The issue whose create menu is open. */
   createMenuFor?: number | null;
   onCreateMenu?: (issue: number | null) => void;
@@ -80,6 +85,7 @@ export function RepoTable({
 
   const s = useMemo(
     () => ({
+      // No overflow clipping: the header's filter dropdowns hang below it, over the rows.
       box: {
         borderWidth: 1,
         borderColor: theme.colors.border,
@@ -98,6 +104,7 @@ export function RepoTable({
         borderBottomColor: theme.colors.border,
         borderTopLeftRadius: 6,
         borderTopRightRadius: 6,
+        zIndex: 10,
       },
       summary: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8 },
       repo: { color: theme.colors.foregroundMuted, fontSize: 13, fontWeight: "400" as const },
@@ -124,6 +131,14 @@ export function RepoTable({
           </View>
           {headerControls}
         </View>
+        {menuOpen ? (
+          // Above the rows, below the header and its dropdown.
+          <Pressable
+            accessibilityLabel="Close filter menu"
+            onPress={onDismissMenu}
+            style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 5 }}
+          />
+        ) : null}
         {result.isError ? <Text style={s.error}>Could not load issues: {message(result.error)}</Text> : null}
         {result.isPending ? (
           <View style={s.loading}>

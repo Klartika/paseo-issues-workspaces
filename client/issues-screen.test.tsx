@@ -588,6 +588,44 @@ describe("issues screen: filter bar", () => {
     await waitFor(() => expect(requests.at(-1)?.query).toBe(""));
   });
 
+  it("paints the open menu above the layer that closes it, so its entries can be pressed", async () => {
+    setUp();
+    const menu = await openMenu("Labels");
+    const entry = await within(menu).findByRole("menuitem", { name: "android" });
+    const search = within(menu).getByLabelText("Filter labels");
+
+    for (const layer of screen.getAllByLabelText("Close filter menu")) {
+      expect(paintsAbove(entry, layer)).toBe(true);
+      expect(paintsAbove(search, layer)).toBe(true);
+    }
+    // The other filter buttons stay pressable, to switch menus.
+    const authors = screen.getByRole("button", { name: /^Author/ });
+    for (const layer of screen.getAllByLabelText("Close filter menu")) expect(paintsAbove(authors, layer)).toBe(true);
+  });
+
+  it("covers the issue rows while a menu is open, so pressing one closes the menu", async () => {
+    setUp();
+    await openMenu("Labels");
+    const create = screen.getByRole("button", { name: "Create workspace for issue 1" });
+
+    const covering = screen.getAllByLabelText("Close filter menu").filter((layer) => paintsAbove(layer, create));
+    expect(covering.length).toBeGreaterThan(0);
+    fireEvent.click(covering[0]);
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("closes the menu when anything outside it is pressed", async () => {
+    setUp();
+    // One layer covers the screen around the table, one covers the table's rows.
+    for (const index of [0, 1]) {
+      await openMenu("Labels");
+      const layers = screen.getAllByLabelText("Close filter menu");
+      expect(layers).toHaveLength(2);
+      fireEvent.click(layers[index]);
+      expect(screen.queryByRole("menu")).toBeNull();
+    }
+  });
+
   it("closes an open menu when the page changes", async () => {
     readySettings(prefs());
     serveProjects([project("octo/repo")]);
