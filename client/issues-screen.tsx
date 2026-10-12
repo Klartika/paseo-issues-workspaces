@@ -2,8 +2,8 @@ import type { PluginScreenProps } from "@getpaseo/plugin/client";
 import { useRpc, useSettings } from "@getpaseo/plugin/client";
 import { Icon, ScrollView, useToast } from "@getpaseo/plugin/client/react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, Text, View } from "react-native";
+import { useMemo, useRef, useState } from "react";
+import { ActivityIndicator, Pressable, Text, View, type ScrollView as NativeScrollView } from "react-native";
 import {
   createWorkspaceRpc,
   DEFAULT_PREFERENCES,
@@ -21,7 +21,7 @@ import { DensityToggle } from "./density-toggle";
 import { pickProject, showProjectSelector } from "./issue-list";
 import { OTHER_HOSTS_QUERY_KEY, useOtherHosts } from "./other-hosts";
 import { ProjectSelector } from "./project-selector";
-import { ISSUES_QUERY_KEY, RepoTable } from "./repo-table";
+import { PAGE_QUERY_KEY, RepoTable } from "./repo-table";
 import { SearchBar } from "./search-bar";
 
 const PROJECTS_QUERY_KEY = ["issues.projects"];
@@ -41,6 +41,8 @@ export function IssuesScreen({
   const [pending, setPending] = useState<number | null>(null);
   // The issue whose create menu is open, if any.
   const [createMenu, setCreateMenu] = useState<number | null>(null);
+  const [page, setPage] = useState(1);
+  const scroller = useRef<NativeScrollView>(null);
 
   const settings = useSettings(preferences);
   const saved = settings.status === "ready" ? settings.values : null;
@@ -64,10 +66,12 @@ export function IssuesScreen({
   }
   function search(next: string) {
     setQueryChoice(next);
+    setPage(1);
     void savePreferences({ searchQuery: next });
   }
   function selectProject(option: RepoProject) {
     setRepoChoice(option.repo.toLowerCase());
+    setPage(1);
     setCreateMenu(null);
     void savePreferences({ selectedRepo: option.repo.toLowerCase() });
   }
@@ -89,7 +93,7 @@ export function IssuesScreen({
     },
     onSettled: () => {
       setPending(null);
-      void queryClient.invalidateQueries({ queryKey: ISSUES_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: PAGE_QUERY_KEY });
       void queryClient.invalidateQueries({ queryKey: OTHER_HOSTS_QUERY_KEY });
     },
   });
@@ -111,7 +115,7 @@ export function IssuesScreen({
   const refreshing = projects.isFetching || others.isFetching;
 
   return (
-    <ScrollView style={s.screen} contentContainerStyle={s.content}>
+    <ScrollView ref={scroller} style={s.screen} contentContainerStyle={s.content}>
       {createMenu !== null ? (
         <Pressable accessibilityLabel="Close menu" onPress={() => setCreateMenu(null)} style={s.backdrop} />
       ) : null}
@@ -128,14 +132,6 @@ export function IssuesScreen({
         <View style={{ flex: 1 }}>
           <SearchBar query={query} onSearch={search} theme={theme} />
         </View>
-        <DensityToggle
-          density={density}
-          onChange={(next) => {
-            setDensityChoice(next);
-            void savePreferences({ density: next });
-          }}
-          theme={theme}
-        />
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Refresh issues"
@@ -143,7 +139,7 @@ export function IssuesScreen({
           onPress={() => {
             void projects.refetch();
             void others.refetch();
-            void queryClient.invalidateQueries({ queryKey: ISSUES_QUERY_KEY });
+            void queryClient.invalidateQueries({ queryKey: PAGE_QUERY_KEY });
           }}
           style={s.iconButton}
         >
@@ -171,6 +167,13 @@ export function IssuesScreen({
             <RepoTable
               project={selected}
               query={query}
+              page={page}
+              onPageChange={(next) => {
+                setPage(next);
+                setCreateMenu(null);
+                // Like following a page link on github.com: start reading from the top.
+                scroller.current?.scrollTo({ y: 0, animated: false });
+              }}
               density={density}
               branchPrefix={prefs.branchPrefix}
               otherHostWorkspaces={others.data?.workspaces}
@@ -180,6 +183,16 @@ export function IssuesScreen({
               agentLabel={prefs.agent || "the host's default agent"}
               createMenuFor={createMenu}
               onCreateMenu={setCreateMenu}
+              headerControls={
+                <DensityToggle
+                  density={density}
+                  onChange={(next) => {
+                    setDensityChoice(next);
+                    void savePreferences({ density: next });
+                  }}
+                  theme={theme}
+                />
+              }
               theme={theme}
               layout={layout}
               navigation={navigation}

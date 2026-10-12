@@ -3,6 +3,7 @@ import {
   branchName,
   defaultAgent,
   issueMatcher,
+  PAGE_SIZE,
   parseGitHubRemote,
   renderPrompt,
   type CreateAction,
@@ -43,6 +44,8 @@ function findGh() {
 async function gh(args: string[]) {
   return run(await findGh(), args);
 }
+
+const SIGNED_OUT = /gh auth login|not logged in|authentication required/i;
 
 type Project = { id: string; name: string; root: string; kind: string };
 
@@ -188,27 +191,29 @@ function coverage(n: number, branchPrefix: string, workspaces: Workspace[], bran
   };
 }
 
-/** One issue as `gh issue list --json` prints it. */
-type ListItem = {
+/** One result from GitHub's issue search API. */
+type SearchItem = {
   number: number;
   title: string;
-  url: string;
+  html_url: string;
   labels: { name: string; color: string }[];
-  author: { login: string } | null;
-  createdAt: string;
+  user: { login: string } | null;
+  created_at: string;
 };
 
-const MAX_ISSUES = 100;
-
-/** Up to 100 open issues in `repo` matching `query`, newest first. */
-async function listIssues(repo: string, query: string) {
+/**
+ * One page of open issues in `repo` matching `query`, newest first, the way github.com lists
+ * them. Uses the search API, which allows 30 searches a minute and 1,000 results per search.
+ */
+async function searchPage(repo: string, query: string, page: number) {
   const { stdout } = await gh([
-    "issue", "list", "--repo", repo, "--state", "open",
-    "--search", `${query} sort:created-desc`.trim(),
-    "--limit", String(MAX_ISSUES),
-    "--json", "number,title,url,labels,author,createdAt",
+    "api", "--method", "GET", "search/issues",
+    "-f", `q=repo:${repo} is:issue state:open ${query}`.trim(),
+    "-f", "sort=created", "-f", "order=desc",
+    "-F", `per_page=${PAGE_SIZE}`, "-F", `page=${page}`,
   ]);
-  return JSON.parse(stdout) as ListItem[];
+  const result = JSON.parse(stdout) as { total_count: number; items: SearchItem[] };
+  return { totalCount: result.total_count, items: result.items };
 }
 
 /** What coverage needs to know about one repository: its workspaces and local branches. */
@@ -217,16 +222,16 @@ async function coverageContext(paseo: PaseoApi, r: RepoProjects, workspaces?: Wo
   return { workspaces: all.filter((w) => r.projectIds.has(w.projectId)), branches };
 }
 
-function toIssues(items: ListItem[], branchPrefix: string, context: { workspaces: Workspace[]; branches: string[] }) {
+function toIssues(items: SearchItem[], branchPrefix: string, context: { workspaces: Workspace[]; branches: string[] }) {
   return items.map(
     (i): Issue => ({
       number: i.number,
       title: i.title,
-      url: i.url,
+      url: i.html_url,
       labels: i.labels.map((l) => ({ name: l.name, color: l.color })),
-      // gh lists apps as "app/<name>"; GitHub shows them by name.
-      author: i.author?.login.replace(/^app\//, "") ?? null,
-      createdAt: i.createdAt,
+      // GitHub shows apps without their "[bot]" suffix.
+      author: i.user?.login.replace(/\[bot\]$/, "") ?? null,
+      createdAt: i.created_at,
       ...coverage(i.number, branchPrefix, context.workspaces, context.branches),
     }),
   );
@@ -247,17 +252,23 @@ export async function projectList(paseo: PaseoApi) {
   return { repos: choices, skipped };
 }
 
-/** One repository's open issues matching `query`. `projectId` names one of this host's projects. */
-export async function issueList(
+/** A later page of one repository's results, for the pager. `projectId` names one of this host's projects. */
+export async function issuesPage(
   paseo: PaseoApi,
   prefs: Preferences,
-  { projectId, query }: { projectId: string; query: string },
+  { projectId, query, page }: { projectId: string; query: string; page: number },
 ) {
+  await findGh();
+  const search = (slug: string) =>
+    searchPage(slug, normalizeQuery(query), page).catch((error: unknown) => {
+      const text = errorText(error);
+      throw new Error(SIGNED_OUT.test(text) ? "GitHub CLI is not signed in on this host. Run `gh auth login`." : text);
+    });
   const { repos } = await githubRepos(await listProjects(paseo));
   const r = [...repos.values()].find((candidate) => candidate.projectIds.has(projectId));
   if (!r) throw new Error("That project is no longer in Paseo, or no longer has a github.com remote");
-  const [items, context] = await Promise.all([listIssues(r.repo, normalizeQuery(query)), coverageContext(paseo, r)]);
-  return { issues: toIssues(items, prefs.branchPrefix, context) };
+  const [result, context] = await Promise.all([search(r.repo), coverageContext(paseo, r)]);
+  return { issues: toIssues(result.items, prefs.branchPrefix, context), totalCount: result.totalCount };
 }
 
 /** The configured `provider/model`, else the first ready provider with its default model. */

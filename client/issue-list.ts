@@ -1,6 +1,20 @@
 // Plain logic behind the issues screen, kept free of React Native so it can be tested directly.
 import { issueMatcher } from "../shared/issues";
 
+/** GitHub's page list: both ends, two pages either side of the current one, gaps as "…". */
+export function pageItems(page: number, pageCount: number): (number | "gap")[] {
+  const shown = new Set([1, 2, pageCount - 1, pageCount]);
+  for (let p = page - 2; p <= page + 2; p++) shown.add(p);
+  const pages = [...shown].filter((p) => p >= 1 && p <= pageCount).sort((a, b) => a - b);
+  const items: (number | "gap")[] = [];
+  for (const p of pages) {
+    const last = items[items.length - 1];
+    if (typeof last === "number" && p - last > 1) items.push(p - last === 2 ? last + 1 : "gap");
+    items.push(p);
+  }
+  return items;
+}
+
 /** The picker appears only when there is a choice to make. */
 export function showProjectSelector(options: readonly unknown[]): boolean {
   return options.length > 1;

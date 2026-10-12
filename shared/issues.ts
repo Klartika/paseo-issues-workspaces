@@ -4,6 +4,16 @@ import { z } from "zod";
 /** What the search box starts with. `is:issue state:open` is always added and never shown. */
 export const DEFAULT_QUERY = "assignee:@me";
 
+/** Issues per page, as on github.com. */
+export const PAGE_SIZE = 25;
+/** GitHub's search returns at most this many results, so pages stop at 40. */
+export const MAX_RESULTS = 1000;
+
+/** Pages available for `totalCount` matches; always at least one. */
+export function pageCountFor(totalCount: number): number {
+  return Math.max(1, Math.ceil(Math.min(totalCount, MAX_RESULTS) / PAGE_SIZE));
+}
+
 export const DENSITIES = ["comfortable", "compact"] as const;
 export type Density = (typeof DENSITIES)[number];
 
@@ -177,15 +187,16 @@ export const projectsRpc = defineRpc({
   }),
 });
 
-/** Open issues in one repository, newest first, up to 100. */
-export const issuesRpc = defineRpc({
-  name: "issues.list",
+/** One page of open issues in one repository, newest first. */
+export const issuesPageRpc = defineRpc({
+  name: "issues.page",
   input: z.object({
     projectId: z.string(),
     /** GitHub's issue search syntax; `is:issue state:open` is implied. */
     query: z.string().max(1000),
+    page: z.number().int().min(1),
   }),
-  output: z.object({ issues: z.array(issue) }),
+  output: z.object({ issues: z.array(issue), totalCount: z.number() }),
 });
 
 /** `create` makes the workspace only; `agent` also starts an agent with the agent prompt. */

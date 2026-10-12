@@ -2,7 +2,7 @@ GitHub Issues lists a project's open GitHub issues, laid out like GitHub's issue
 
 ## The screen
 
-When you have more than one GitHub project, a row of tabs at the top picks the one to show. Below it are the search box, a switch between a comfortable and a compact density, and that project's issues, newest first, up to 100 of them.
+When you have more than one GitHub project, a row of tabs at the top picks the one to show. Below it are the search box and that project's issues, newest first, 25 to a page with GitHub's pager. Each page is fetched from GitHub when you open it. The table's header shows the open count and switches between a comfortable and a compact density.
 
 The search box takes GitHub's issue search syntax and starts with `assignee:@me`. `is:issue state:open` is always part of the search, so only open issues appear. Try `label:bug`, `author:octocat`, or `no:assignee`; clearing the box lists every open issue.
 
@@ -36,4 +36,4 @@ The plugin runs `gh` and `git` on the daemon host as the signed-in user. It read
 
 **Create and start an agent** puts the issue's title and URL in the agent's first message, and the default prompt has the agent read the issue and its comments. Anyone who can open or comment on issues in the repository controls that text, so for public repositories review the agent prompt and the agent's permissions before using it.
 
-Only github.com is supported; GitHub Enterprise remotes are skipped. The list shows at most 100 issues; narrow the search to see the rest.
+Only github.com is supported; GitHub Enterprise remotes are skipped. Issues come from GitHub's search API, which returns at most 1,000 results per search (40 pages) and allows 30 searches a minute; each page you open is one search, and a page seen in the last minute is reused.
