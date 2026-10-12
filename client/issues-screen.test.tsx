@@ -85,6 +85,24 @@ function servePages(table: Record<string, Issue[] | Error>) {
   return requests;
 }
 
+type Options = {
+  me: string | null;
+  labels: { name: string; color: string; description: string | null }[];
+  milestones: { title: string; description: string | null }[];
+  users: { login: string; avatarUrl: string | null }[];
+  types: { name: string; color: string; description: string | null }[];
+};
+const noOptions: Options = { me: "ajma", labels: [], milestones: [], users: [], types: [] };
+
+function serveOptions(options: Partial<Options> = {}) {
+  const requests: unknown[] = [];
+  host.rpcs.set("issues.filter-options", async (input) => {
+    requests.push(input);
+    return { ...noOptions, ...options };
+  });
+  return requests;
+}
+
 function serveCreate() {
   const requests: unknown[] = [];
   host.rpcs.set("issues.create-workspace", async (input) => {
@@ -103,6 +121,7 @@ function serveCreate() {
 /** One project, octo/repo, with the given issues. */
 function oneProject(issues: Issue[] | Error) {
   serveProjects([project("octo/repo")]);
+  serveOptions();
   return servePages({ "p-octo/repo": issues });
 }
 
@@ -199,11 +218,13 @@ describe("issues screen: loading", () => {
 
     expect(await screen.findByText(/None of your Paseo projects has a github.com remote/)).toBeTruthy();
     expect(screen.queryByText(/Not on GitHub/)).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Labels/ })).toBeNull();
   });
 
   it("does not list projects that are not on GitHub", async () => {
     readySettings(prefs());
     serveProjects([project("octo/repo")], [{ projectName: "dotfiles", reason: "no git remote" }]);
+    serveOptions();
     servePages({ "p-octo/repo": [issue(1)] });
     renderScreen();
 
@@ -290,17 +311,6 @@ describe("issues screen: rows", () => {
     expect(navigation.openWorkspace).toHaveBeenCalledWith({ workspaceId: "wks_r", serverId: "srv_box" });
   });
 
-  it("switches density and saves it", async () => {
-    const saves = readySettings(prefs());
-    oneProject([issue(1)]);
-    renderScreen();
-    await screen.findByText("Issue 1");
-
-    fireEvent.click(screen.getByRole("button", { name: "Compact density" }));
-
-    await waitFor(() => expect(saves.at(-1)?.density).toBe("compact"));
-  });
-
   it("puts the metadata on the title line in compact density", async () => {
     readySettings(prefs({ density: "compact" }));
     oneProject([issue(7)]);
@@ -327,6 +337,7 @@ describe("issues screen: project picker", () => {
   it("offers one choice per project and shows only the selected project's issues", async () => {
     readySettings(prefs());
     serveProjects([project("octo/a"), project("octo/b", { otherProjects: ["b-ios"] })]);
+    serveOptions();
     const requests = servePages({ "p-octo/a": [issue(1)], "p-octo/b": [issue(2)] });
     renderScreen();
 
@@ -342,6 +353,7 @@ describe("issues screen: project picker", () => {
   it("switches project, saving the choice and starting on page 1", async () => {
     const saves = readySettings(prefs());
     serveProjects([project("octo/a"), project("Octo/B")]);
+    serveOptions();
     const requests = servePages({
       "p-octo/a": Array.from({ length: 30 }, (_, i) => issue(i + 1)),
       "p-Octo/B": [issue(99)],
@@ -363,6 +375,7 @@ describe("issues screen: project picker", () => {
   it("opens on the saved project", async () => {
     readySettings(prefs({ selectedRepo: "octo/b" }));
     serveProjects([project("octo/a"), project("octo/b")]);
+    serveOptions();
     servePages({ "p-octo/a": [issue(1)], "p-octo/b": [issue(2)] });
     renderScreen();
 
@@ -373,6 +386,7 @@ describe("issues screen: project picker", () => {
   it("falls back to the first project when the saved one is gone", async () => {
     readySettings(prefs({ selectedRepo: "octo/gone" }));
     serveProjects([project("octo/a"), project("octo/b")]);
+    serveOptions();
     servePages({ "p-octo/a": [issue(1)], "p-octo/b": [issue(2)] });
     renderScreen();
 
@@ -419,6 +433,202 @@ describe("issues screen: search", () => {
     await waitFor(() => expect(requests.at(-1)?.query).toBe("assignee:@me"));
   });
 
+  it("sits between the project picker and the table, whose header holds the filters", async () => {
+    readySettings(prefs());
+    serveProjects([project("octo/a"), project("octo/b")]);
+    serveOptions();
+    servePages({ "p-octo/a": [issue(1)], "p-octo/b": [] });
+    renderScreen();
+    await screen.findByText("Issue 1");
+
+    const follows = (a: Element, b: Element) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    const picker = screen.getAllByRole("tab")[0];
+    const searchBox = screen.getByLabelText(/Search issues/);
+    const filters = screen.getByRole("button", { name: "Author" });
+    const count = screen.getByText("1 Open");
+    const table = screen.getByText("Issue 1");
+    expect(follows(picker, searchBox)).toBe(true);
+    expect(follows(searchBox, count)).toBe(true);
+    expect(follows(count, filters)).toBe(true);
+    expect(follows(filters, table)).toBe(true);
+    // The count and the filters share the table header, as on github.com.
+    let header = count.parentElement!;
+    while (!header.contains(filters)) header = header.parentElement!;
+    expect(header.contains(table)).toBe(false);
+  });
+});
+
+// --- Filter bar ---------------------------------------------------------------------------------
+
+describe("issues screen: filter bar", () => {
+  const options: Options = {
+    me: "ajma",
+    labels: [
+      { name: "android", color: "037501", description: null },
+      { name: "good first issue", color: "7057ff", description: "Good for newcomers" },
+    ],
+    milestones: [{ title: "PEM1 · Early Adopter Program", description: null }],
+    users: [
+      { login: "ajma", avatarUrl: null },
+      { login: "octocat", avatarUrl: "https://avatars.example/octocat" },
+    ],
+    types: [{ name: "Bug", color: "RED", description: "An unexpected problem" }],
+  };
+
+  function setUp(query = "assignee:@me") {
+    const saves = readySettings(prefs({ searchQuery: query }));
+    serveProjects([project("octo/repo")]);
+    const optionRequests = serveOptions(options);
+    const requests = servePages({ "p-octo/repo": [issue(1)] });
+    renderScreen();
+    return { saves, requests, optionRequests };
+  }
+  const openMenu = async (name: string) => {
+    fireEvent.click(await screen.findByRole("button", { name: new RegExp(`^${name}`) }));
+    return screen.findByRole("menu");
+  };
+  const row = (menu: HTMLElement, name: string) => within(menu).getByRole("menuitem", { name });
+
+  it("has GitHub's filters and loads their options for the selected repository", async () => {
+    const { optionRequests } = setUp();
+    await screen.findByText("Issue 1");
+
+    for (const name of ["Author", "Labels", "Milestones", "Assignees", "Types"]) {
+      expect(screen.getByRole("button", { name: new RegExp(`^${name}`) })).toBeTruthy();
+    }
+    await waitFor(() => expect(optionRequests).toEqual([{ repo: "octo/repo" }]));
+  });
+
+  it("adds labels to the search, keeping the menu open for more", async () => {
+    const { requests } = setUp();
+    const menu = await openMenu("Labels");
+
+    fireEvent.click(await within(menu).findByRole("menuitem", { name: "good first issue" }));
+    await waitFor(() => expect(requests.at(-1)?.query).toBe('assignee:@me label:"good first issue"'));
+    fireEvent.click(row(screen.getByRole("menu"), "android"));
+    await waitFor(() => expect(requests.at(-1)?.query).toBe('assignee:@me label:"good first issue" label:android'));
+
+    expect(row(screen.getByRole("menu"), "android").getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByRole("button", { name: "Labels, 2 applied" })).toBeTruthy();
+    expect((screen.getByLabelText(/Search issues/) as HTMLInputElement).value).toBe(
+      'assignee:@me label:"good first issue" label:android',
+    );
+  });
+
+  it("counts only labels; a single-choice filter in use shows bold with no count", async () => {
+    setUp('assignee:@me author:octocat milestone:"PEM1 · Early Adopter Program" type:Bug label:android');
+    await screen.findByText("Issue 1");
+
+    expect(screen.getByRole("button", { name: "Labels, 1 applied" })).toBeTruthy();
+    for (const name of ["Author", "Milestones", "Assignees", "Types"]) {
+      const button = screen.getByRole("button", { name: `${name}, filtered` });
+      expect(within(button).queryByText("1")).toBeNull();
+      expect(getComputedStyle(within(button).getByText(name)).fontWeight).toBe("600");
+    }
+  });
+
+  it("shows the signed-in user as the current assignee, and offers nobody", async () => {
+    const { requests } = setUp();
+    const menu = await openMenu("Assignees");
+
+    expect((await within(menu).findByRole("menuitem", { name: "ajma" })).getAttribute("aria-checked")).toBe("true");
+    expect(row(menu, "octocat").getAttribute("aria-checked")).toBe("false");
+
+    fireEvent.click(row(menu, "Assigned to nobody"));
+    await waitFor(() => expect(requests.at(-1)?.query).toBe("no:assignee"));
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("filters by author, writing @me for yourself, and closes", async () => {
+    const { requests } = setUp("");
+    const menu = await openMenu("Author");
+
+    fireEvent.click(await within(menu).findByRole("menuitem", { name: "ajma" }));
+
+    await waitFor(() => expect(requests.at(-1)?.query).toBe("author:@me"));
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("lets you type any login, as on GitHub", async () => {
+    const { requests } = setUp("");
+    const menu = await openMenu("Author");
+    await within(menu).findByRole("menuitem", { name: "ajma" });
+
+    fireEvent.change(within(menu).getByLabelText("Filter author"), { target: { value: "someone-else" } });
+    fireEvent.click(row(screen.getByRole("menu"), "someone-else"));
+
+    await waitFor(() => expect(requests.at(-1)?.query).toBe("author:someone-else"));
+  });
+
+  it("narrows a menu to what you type", async () => {
+    setUp();
+    const menu = await openMenu("Labels");
+    await within(menu).findByRole("menuitem", { name: "android" });
+
+    fireEvent.change(within(menu).getByLabelText("Filter labels"), { target: { value: "GOOD" } });
+
+    expect(within(screen.getByRole("menu")).queryByRole("menuitem", { name: "android" })).toBeNull();
+    expect(row(screen.getByRole("menu"), "good first issue")).toBeTruthy();
+  });
+
+  it("filters by milestone and type, quoting names with spaces", async () => {
+    const { requests } = setUp("");
+    const milestones = await openMenu("Milestones");
+    fireEvent.click(await within(milestones).findByRole("menuitem", { name: "PEM1 · Early Adopter Program" }));
+    await waitFor(() => expect(requests.at(-1)?.query).toBe('milestone:"PEM1 · Early Adopter Program"'));
+
+    fireEvent.click(row(await openMenu("Types"), "Bug"));
+    await waitFor(() => expect(requests.at(-1)?.query).toBe('milestone:"PEM1 · Early Adopter Program" type:Bug'));
+  });
+
+  it("removes a single-choice filter when it is picked again", async () => {
+    const { requests } = setUp("type:Bug");
+    const menu = await openMenu("Types");
+    fireEvent.click(await within(menu).findByRole("menuitem", { name: "Bug" }));
+    await waitFor(() => expect(requests.at(-1)?.query).toBe(""));
+  });
+
+  it("closes an open menu when the page changes", async () => {
+    readySettings(prefs());
+    serveProjects([project("octo/repo")]);
+    serveOptions(options);
+    servePages({ "p-octo/repo": Array.from({ length: 30 }, (_, i) => issue(30 - i)) });
+    renderScreen();
+    await openMenu("Labels");
+
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("switches density and saves it", async () => {
+    const { saves } = setUp();
+    await screen.findByText("Issue 1");
+
+    fireEvent.click(screen.getByRole("button", { name: "Compact density" }));
+
+    await waitFor(() => expect(saves.at(-1)?.density).toBe("compact"));
+  });
+
+  it("names each density on hover, like GitHub's tooltips", async () => {
+    setUp();
+    await screen.findByText("Issue 1");
+    const compact = screen.getByRole("button", { name: "Compact density" });
+
+    // A mouse, not a finger: react-native-web ignores hover from touch input.
+    const mouse = (type: string) => {
+      const event = new MouseEvent(type, { bubbles: false });
+      Object.defineProperty(event, "pointerType", { value: "mouse" });
+      act(() => void compact.dispatchEvent(event));
+    };
+
+    mouse("pointerenter");
+    mouse("mouseenter");
+    expect(await screen.findByText("Compact")).toBeTruthy();
+    mouse("pointerleave");
+    mouse("mouseleave");
+    await waitFor(() => expect(screen.queryByText("Compact")).toBeNull());
+  });
 });
 
 // --- Paging -------------------------------------------------------------------------------------
@@ -485,6 +695,7 @@ describe("issues screen: paging", () => {
   it("stops at page 40, GitHub's search limit, and formats large counts", async () => {
     readySettings(prefs());
     serveProjects([project("octo/repo")]);
+    serveOptions();
     host.rpcs.set("issues.page", async () => ({ issues: many.slice(0, 25), totalCount: 5432 }));
     renderScreen();
     await screen.findByText("Issue 60");
@@ -727,6 +938,7 @@ describe("issues screen: projects on other hosts", () => {
   it("offers a project only another host has, labelled with that host", async () => {
     readySettings(prefs());
     serveProjects([project("octo/here")]);
+    serveOptions();
     servePages({ "p-octo/here": [issue(1)], "octo/there": [issue(9)] });
     buildBox([remoteProject("octo/there")]);
     renderScreen();
@@ -737,6 +949,7 @@ describe("issues screen: projects on other hosts", () => {
   it("shows that project's issues, searched by repository, labelled with its host", async () => {
     readySettings(prefs({ selectedRepo: "octo/there" }));
     serveProjects([project("octo/here")]);
+    serveOptions();
     const requests = servePages({ "p-octo/here": [], "octo/there": [issue(9, { title: "Remote issue" })] });
     buildBox([remoteProject("octo/there")]);
     renderScreen();
@@ -749,6 +962,7 @@ describe("issues screen: projects on other hosts", () => {
   it("does not offer a repository this host also has", async () => {
     readySettings(prefs());
     serveProjects([project("octo/shared")]);
+    serveOptions();
     servePages({ "p-octo/shared": [issue(1)] });
     buildBox([remoteProject("Octo/Shared")]);
     renderScreen();
@@ -761,6 +975,7 @@ describe("issues screen: projects on other hosts", () => {
   it("creates the workspace on the host that has the project", async () => {
     readySettings(prefs({ selectedRepo: "octo/there" }));
     serveProjects([project("octo/here")]);
+    serveOptions();
     servePages({ "p-octo/here": [], "octo/there": [issue(9, { title: "Remote issue" })] });
     buildBox([remoteProject("octo/there")]);
     const localCreates = serveCreate();
@@ -791,6 +1006,7 @@ describe("issues screen: projects on other hosts", () => {
   it("names the other host's default agent in the fix option", async () => {
     readySettings(prefs({ selectedRepo: "octo/there" }));
     serveProjects([project("octo/here")]);
+    serveOptions();
     servePages({ "p-octo/here": [], "octo/there": [issue(9)] });
     buildBox([remoteProject("octo/there")]);
     renderScreen();
@@ -802,6 +1018,7 @@ describe("issues screen: projects on other hosts", () => {
   it("opens the other host's workspace for a covered issue", async () => {
     readySettings(prefs({ selectedRepo: "octo/there" }));
     serveProjects([project("octo/here")]);
+    serveOptions();
     servePages({ "p-octo/here": [], "octo/there": [issue(9)] });
     buildBox(
       [remoteProject("octo/there")],
@@ -825,6 +1042,7 @@ describe("issues screen: projects on other hosts", () => {
   it("ignores offline hosts", async () => {
     readySettings(prefs());
     serveProjects([project("octo/here")]);
+    serveOptions();
     servePages({ "p-octo/here": [issue(1)] });
     buildBox([remoteProject("octo/there")]);
     host.hosts[1].status = "offline";

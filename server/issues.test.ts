@@ -757,3 +757,90 @@ describe("issueDetails", () => {
     await expect(mod.issueDetails({ repo: "octo/repo", number: 999 })).rejects.toThrow("Could not resolve to an issue");
   });
 });
+
+describe("filterOptions", () => {
+  function optionsGh(overrides: Record<string, GhReply> = {}) {
+    return (args: string[]): GhReply => {
+      const line = args.join(" ");
+      const reply = Object.entries(overrides).find(([prefix]) => line.startsWith(prefix))?.[1];
+      if (reply !== undefined) return reply;
+      if (line === "api user --jq .login") return "ajma\n";
+      if (line.startsWith("label list --repo octo/repo")) {
+        return JSON.stringify([
+          { name: "bug", color: "d73a4a", description: "Something isn't working" },
+          { name: "android", color: "037501", description: "" },
+        ]);
+      }
+      if (line.startsWith("api repos/octo/repo/milestones")) {
+        return '{"title":"v1","description":"First"}\n{"title":"v2","description":null}\n';
+      }
+      if (line.startsWith("api repos/octo/repo/assignees")) {
+        return [
+          '{"login":"zed","avatarUrl":"z.png"}',
+          '{"login":"ajma","avatarUrl":"a.png"}',
+          '{"login":"amy","avatarUrl":null}',
+        ].join("\n");
+      }
+      if (line.startsWith("api graphql")) {
+        return '{"name":"Bug","color":"RED","description":"An unexpected problem"}\n{"name":"Task","color":"YELLOW","description":null}\n';
+      }
+      throw new Error(`unexpected gh ${line}`);
+    };
+  }
+
+  it("collects labels, open milestones, assignable people and issue types", async () => {
+    fake.gh = optionsGh();
+
+    expect(await mod.filterOptions({ repo: "octo/repo" })).toEqual({
+      me: "ajma",
+      labels: [
+        { name: "android", color: "037501", description: null },
+        { name: "bug", color: "d73a4a", description: "Something isn't working" },
+      ],
+      milestones: [
+        { title: "v1", description: "First" },
+        { title: "v2", description: null },
+      ],
+      // You first, then alphabetical.
+      users: [
+        { login: "ajma", avatarUrl: "a.png" },
+        { login: "amy", avatarUrl: null },
+        { login: "zed", avatarUrl: "z.png" },
+      ],
+      types: [
+        { name: "Bug", color: "RED", description: "An unexpected problem" },
+        { name: "Task", color: "YELLOW", description: null },
+      ],
+    });
+  });
+
+  it("asks for open milestones, every page, and only enabled issue types", async () => {
+    fake.gh = optionsGh();
+    await mod.filterOptions({ repo: "octo/repo" });
+
+    const milestones = ghCalls("api repos/octo/repo/milestones")[0].args;
+    expect(milestones[1]).toBe("repos/octo/repo/milestones?state=open&per_page=100");
+    expect(milestones).toContain("--paginate");
+    const types = ghCalls("api graphql")[0].args;
+    expect(types).toEqual(expect.arrayContaining(["owner=octo", "name=repo"]));
+    expect(types.at(-1)).toContain("select(.isEnabled)");
+  });
+
+  it("leaves a part empty when GitHub refuses it, keeping the rest", async () => {
+    fake.gh = optionsGh({
+      "api graphql": ghError("Field 'issueTypes' doesn't exist"),
+      "api repos/octo/repo/assignees": ghError("HTTP 403"),
+    });
+
+    const result = await mod.filterOptions({ repo: "octo/repo" });
+
+    expect(result.types).toEqual([]);
+    expect(result.users).toEqual([]);
+    expect(result.labels).toHaveLength(2);
+  });
+
+  it("says how to install gh when it is missing", async () => {
+    fake.ghInstalled = false;
+    await expect(mod.filterOptions({ repo: "octo/repo" })).rejects.toThrow("is not installed");
+  });
+});

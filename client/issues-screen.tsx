@@ -17,7 +17,7 @@ import {
   type Issue,
   type Preferences,
 } from "../shared/issues";
-import { DensityToggle } from "./density-toggle";
+import { FilterControls, type MenuId } from "./filter-bar";
 import { pickProject, remoteOnlyProjects, showProjectSelector, type ProjectOption } from "./issue-list";
 import { OTHER_HOSTS_QUERY_KEY, useOtherHosts } from "./other-hosts";
 import { ProjectSelector } from "./project-selector";
@@ -41,8 +41,17 @@ export function IssuesScreen({
   const queryClient = useQueryClient();
   const toast = useToast();
   const [pending, setPending] = useState<number | null>(null);
-  // The issue whose create menu is open, if any.
+  // One menu at a time: a filter menu in the table header, or one issue's create menu.
+  const [openMenu, setFilterMenu] = useState<MenuId | null>(null);
   const [createMenu, setCreateMenu] = useState<number | null>(null);
+  const setOpenMenu = (menu: MenuId | null) => {
+    setFilterMenu(menu);
+    setCreateMenu(null);
+  };
+  const openCreateMenu = (issue: number | null) => {
+    setFilterMenu(null);
+    setCreateMenu(issue);
+  };
   const [page, setPage] = useState(1);
   const scroller = useRef<NativeScrollView>(null);
 
@@ -89,7 +98,7 @@ export function IssuesScreen({
   function selectProject(option: ProjectOption) {
     setRepoChoice(option.repo.toLowerCase());
     setPage(1);
-    setCreateMenu(null);
+    setOpenMenu(null);
     void savePreferences({ selectedRepo: option.repo.toLowerCase() });
   }
 
@@ -198,7 +207,7 @@ export function IssuesScreen({
               page={page}
               onPageChange={(next) => {
                 setPage(next);
-                setCreateMenu(null);
+                setOpenMenu(null);
                 // Like following a page link on github.com: start reading from the top.
                 scroller.current?.scrollTo({ y: 0, animated: false });
               }}
@@ -212,16 +221,22 @@ export function IssuesScreen({
                 prefs.agent ||
                 (selected.remote ? `${selected.remote.hostLabel}'s default agent` : "the host's default agent")
               }
-              createMenuFor={createMenu}
-              onCreateMenu={setCreateMenu}
+            createMenuFor={createMenu}
+            onCreateMenu={openCreateMenu}
               headerControls={
-                <DensityToggle
+                <FilterControls
+                  repo={selected.repo}
+                  query={query}
+                  onQueryChange={search}
                   density={density}
-                  onChange={(next) => {
+                  onDensityChange={(next) => {
                     setDensityChoice(next);
                     void savePreferences({ density: next });
                   }}
+                  openMenu={openMenu}
+                  onOpenMenu={setOpenMenu}
                   theme={theme}
+                  layout={layout}
                 />
               }
               theme={theme}

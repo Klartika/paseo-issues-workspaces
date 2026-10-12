@@ -51,7 +51,7 @@ export function RepoTable({
   busy: boolean;
   onCreate: (issue: Issue, action: CreateAction) => void;
   agentLabel: string;
-  /** The density toggle, shown at the right of the header as on github.com. */
+  /** Filters and density, shown at the right of the header as on github.com. */
   headerControls?: ReactNode;
   /** The issue whose create menu is open. */
   createMenuFor?: number | null;

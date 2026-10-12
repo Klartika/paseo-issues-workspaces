@@ -295,6 +295,14 @@ export async function issueDetails({ repo, number: n }: { repo: string; number: 
   return { title, state, url, defaultBranch };
 }
 
+async function settle<T>(promise: Promise<T>): Promise<{ value: T | null; error: string | null }> {
+  try {
+    return { value: await promise, error: null };
+  } catch (error) {
+    return { value: null, error: errorText(error) };
+  }
+}
+
 /** The configured `provider/model`, else the first ready provider with its default model. */
 async function resolveAgent(paseo: PaseoApi, configured: string): Promise<string> {
   if (configured) return configured;
@@ -365,4 +373,59 @@ export async function createWorkspace(
   } finally {
     inFlight.delete(key);
   }
+}
+
+/** Parses `gh api --paginate --jq` output: one JSON value per line. */
+const jsonLines = <T>(stdout: string): T[] =>
+  stdout
+    .split("\n")
+    .filter((line) => line.trim())
+    .map((line) => JSON.parse(line) as T);
+
+type Named = { name: string; color: string; description: string | null };
+
+/** Labels, milestones, people and issue types for the filter menus. A part that fails is left empty. */
+export async function filterOptions({ repo }: { repo: string }) {
+  await findGh();
+  const [owner, name] = repo.split("/");
+  const [me, labels, milestones, users, types] = await Promise.all([
+    settle(gh(["api", "user", "--jq", ".login"]).then((r) => r.stdout.trim() || null)),
+    settle(
+      gh(["label", "list", "--repo", repo, "--limit", "1000", "--json", "name,color,description"]).then(
+        (r) => JSON.parse(r.stdout) as Named[],
+      ),
+    ),
+    settle(
+      gh([
+        "api", `repos/${repo}/milestones?state=open&per_page=100`, "--paginate",
+        "--jq", ".[] | {title, description}",
+      ]).then((r) => jsonLines<{ title: string; description: string | null }>(r.stdout)),
+    ),
+    settle(
+      gh([
+        "api", `repos/${repo}/assignees?per_page=100`, "--paginate",
+        "--jq", ".[] | {login, avatarUrl: .avatar_url}",
+      ]).then((r) => jsonLines<{ login: string; avatarUrl: string | null }>(r.stdout)),
+    ),
+    settle(
+      gh([
+        "api", "graphql",
+        "-f", "query=query($owner:String!,$name:String!){repository(owner:$owner,name:$name){issueTypes(first:50){nodes{name color description isEnabled}}}}",
+        "-F", `owner=${owner}`, "-F", `name=${name}`,
+        "--jq", ".data.repository.issueTypes.nodes // [] | .[] | select(.isEnabled) | {name, color, description}",
+      ]).then((r) => jsonLines<Named>(r.stdout)),
+    ),
+  ]);
+  const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name);
+  const login = me.value ?? null;
+  return {
+    me: login,
+    labels: (labels.value ?? []).map((l) => ({ ...l, description: l.description || null })).sort(byName),
+    milestones: (milestones.value ?? []).map((m) => ({ ...m, description: m.description || null })),
+    // You first, as in GitHub's menus.
+    users: (users.value ?? []).sort((a, b) =>
+      a.login === login ? -1 : b.login === login ? 1 : a.login.localeCompare(b.login),
+    ),
+    types: types.value ?? [],
+  };
 }

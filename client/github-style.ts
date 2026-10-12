@@ -86,3 +86,21 @@ export function timeAgo(iso: string, now = Date.now()) {
   const date = `${MONTHS[then.getMonth()]} ${then.getDate()}`;
   return new Date(now).getFullYear() === then.getFullYear() ? `on ${date}` : `on ${date}, ${then.getFullYear()}`;
 }
+
+// GitHub's issue type colors (Primer's scale), light and dark.
+const TYPE_COLORS: Record<string, [string, string]> = {
+  GRAY: ["#59636e", "#9198a1"],
+  BLUE: ["#0969da", "#4493f8"],
+  GREEN: ["#1a7f37", "#3fb950"],
+  YELLOW: ["#9a6700", "#d29922"],
+  ORANGE: ["#bc4c00", "#db6d28"],
+  RED: ["#d1242f", "#f85149"],
+  PINK: ["#bf3989", "#db61a2"],
+  PURPLE: ["#8250df", "#ab7df8"],
+};
+
+/** The hex color for a GitHub issue type color name such as RED; gray when unknown. */
+export function issueTypeColor(name: string, dark: boolean): string {
+  const [light, darkColor] = TYPE_COLORS[name.toUpperCase()] ?? TYPE_COLORS.GRAY;
+  return dark ? darkColor : light;
+}

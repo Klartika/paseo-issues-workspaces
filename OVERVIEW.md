@@ -2,9 +2,11 @@ GitHub Issues lists a project's open GitHub issues, laid out like GitHub's issue
 
 ## The screen
 
-When you have more than one GitHub project, a row of tabs at the top picks the one to show. Below it are the search box and that project's issues, newest first, 25 to a page with GitHub's pager. Each page is fetched from GitHub when you open it. The table's header shows the open count and switches between a comfortable and a compact density.
+When you have more than one GitHub project, a row of tabs at the top picks the one to show. Below it are the search box and that project's issues, newest first, 25 to a page with GitHub's pager. Each page is fetched from GitHub when you open it.
 
-The search box takes GitHub's issue search syntax and starts with `assignee:@me`. `is:issue state:open` is always part of the search, so only open issues appear. Try `label:bug`, `author:octocat`, or `no:assignee`; clearing the box lists every open issue.
+The search box takes GitHub's issue search syntax and starts with `assignee:@me`. `is:issue state:open` is always part of the search, so only open issues appear. Try `label:bug`, `author:octocat`, `no:assignee`, or `NOT iOS in:title` to leave out issues with a word in the title; clearing the box lists every open issue.
+
+As on github.com, the table's header shows the open count and the Author, Labels, Milestones, Assignees and Types menus, filled from the project's repository. Picking an entry edits the search, so the box always shows what is applied. The header also switches between a comfortable and a compact density.
 
 Each issue shows GitHub's label colors and a **Create workspace** button, or **Open workspace** when a workspace already covers it. As with GitHub's split buttons, the arrow beside **Create workspace** picks what the button does: **Create workspace** or **Create and start an agent**. Tapping an issue's title opens it on GitHub.
 
@@ -36,7 +38,7 @@ The selected project, search and density are saved with these settings. Settings
 
 ## Access and limits
 
-The plugin runs `gh` and `git` on the daemon host as the signed-in user. It reads issues from GitHub and never writes to GitHub. Creating a workspace runs `git fetch` for the default branch and creates a local branch and worktree.
+The plugin runs `gh` and `git` on the daemon host as the signed-in user. It reads issues, labels, milestones, assignable users and issue types from GitHub and never writes to GitHub. Creating a workspace runs `git fetch` for the default branch and creates a local branch and worktree.
 
 **Create and start an agent** puts the issue's title and URL in the agent's first message, and the default prompt has the agent read the issue and its comments. Anyone who can open or comment on issues in the repository controls that text, so for public repositories review the agent prompt and the agent's permissions before using it.
 

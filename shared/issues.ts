@@ -209,6 +209,24 @@ export const issuesPageRpc = defineRpc({
   output: z.object({ issues: z.array(issue), totalCount: z.number() }),
 });
 
+const named = z.object({ name: z.string(), color: z.string(), description: z.string().nullable() });
+
+/** What the filter menus offer for one repository. */
+export const filterOptionsRpc = defineRpc({
+  name: "issues.filter-options",
+  input: z.object({ repo: z.string() }),
+  output: z.object({
+    /** The signed-in GitHub login, which `@me` stands for. */
+    me: z.string().nullable(),
+    labels: z.array(named),
+    milestones: z.array(z.object({ title: z.string(), description: z.string().nullable() })),
+    /** People who can be assigned, which GitHub also suggests as authors. */
+    users: z.array(z.object({ login: z.string(), avatarUrl: z.string().nullable() })),
+    /** Organization issue types; `color` is a GitHub color name such as RED. */
+    types: z.array(named),
+  }),
+});
+
 /** What creating a workspace on another host needs from GitHub. */
 export const issueDetailsRpc = defineRpc({
   name: "issues.details",

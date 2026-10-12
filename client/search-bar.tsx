@@ -21,7 +21,7 @@ export function SearchBar({
 }) {
   // null shows the active query; typing starts a draft until it is submitted.
   const [draft, setDraft] = useState<string | null>(null);
-  // A new query from elsewhere, such as saved settings arriving, replaces whatever was being typed.
+  // A filter menu changing the query replaces whatever was being typed.
   useEffect(() => setDraft(null), [query]);
   const text = draft ?? query;
   const s = useMemo(
