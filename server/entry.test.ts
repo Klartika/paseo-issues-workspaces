@@ -40,6 +40,7 @@ describe("index.server", () => {
     contribute(server);
     expect(registered).toEqual([preferences]);
     expect([...handlers.keys()].sort()).toEqual([
+      "issues.assigned-counts",
       "issues.create-workspace",
       "issues.details",
       "issues.filter-options",

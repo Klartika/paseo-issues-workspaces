@@ -439,3 +439,27 @@ export async function filterOptions({ repo }: { repo: string }) {
     types: types.value ?? [],
   };
 }
+
+/**
+ * Open issues assigned to me in each repository, in one GraphQL request. GraphQL search has
+ * its own budget, so these counts don't use the REST search's 30 a minute. Failure gives no counts.
+ */
+export async function assignedCounts({ repos }: { repos: string[] }) {
+  if (!repos.length) return { counts: {} as Record<string, number> };
+  const fields = repos.map((_, i) => `r${i}: search(query: $q${i}, type: ISSUE, first: 0) { issueCount }`);
+  const query = `query(${repos.map((_, i) => `$q${i}: String!`).join(", ")}) { ${fields.join(" ")} }`;
+  const args = ["api", "graphql", "-f", `query=${query}`];
+  repos.forEach((repo, i) => args.push("-f", `q${i}=repo:${repo} is:issue is:open assignee:@me`));
+  try {
+    const { data } = JSON.parse((await gh(args)).stdout) as { data: Record<string, { issueCount: number } | null> };
+    const counts: Record<string, number> = {};
+    repos.forEach((repo, i) => {
+      const count = data?.[`r${i}`]?.issueCount;
+      if (typeof count === "number") counts[repo] = count;
+    });
+    return { counts };
+  } catch (error) {
+    console.error(`assigned counts failed: ${errorText(error)}`);
+    return { counts: {} as Record<string, number> };
+  }
+}

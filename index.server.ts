@@ -1,6 +1,7 @@
 import type { PluginServerContext } from "@getpaseo/plugin/server";
-import { createWorkspace, filterOptions, issueDetails, issuesPage, projectList } from "./server/issues";
+import { assignedCounts, createWorkspace, filterOptions, issueDetails, issuesPage, projectList } from "./server/issues";
 import {
+  assignedCountsRpc,
   createWorkspaceRpc,
   DEFAULT_PREFERENCES,
   effectivePreferences,
@@ -21,6 +22,7 @@ export default function contribute(server: PluginServerContext) {
   server.handle(projectsRpc, (_input, { paseo }) => projectList(paseo));
   server.handle(issuesPageRpc, async (input, { paseo }) => issuesPage(paseo, await readPreferences(), input));
   server.handle(filterOptionsRpc, (input) => filterOptions(input));
+  server.handle(assignedCountsRpc, (input) => assignedCounts(input));
   server.handle(issueDetailsRpc, (input) => issueDetails(input));
   server.handle(createWorkspaceRpc, async (input, { paseo }) =>
     createWorkspace(paseo, await readPreferences(), input),

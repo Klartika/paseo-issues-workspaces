@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View, type ScrollView as NativeScrollView } from "react-native";
 import {
+  assignedCountsRpc,
   createWorkspaceRpc,
   DEFAULT_PREFERENCES,
   DEFAULT_QUERY,
@@ -26,6 +27,7 @@ import { PAGE_QUERY_KEY, RepoTable } from "./repo-table";
 import { SearchBar } from "./search-bar";
 
 const PROJECTS_QUERY_KEY = ["issues.projects"];
+const COUNTS_QUERY_KEY = ["issues.assigned-counts"];
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -36,6 +38,7 @@ export function IssuesScreen({
   host,
 }: PluginScreenProps) {
   const listProjects = useRpc(projectsRpc);
+  const fetchCounts = useRpc(assignedCountsRpc);
   const issueDetails = useRpc(issueDetailsRpc);
   const createWorkspace = useRpc(createWorkspaceRpc);
   const queryClient = useQueryClient();
@@ -85,6 +88,14 @@ export function IssuesScreen({
     : [];
   const selected = pickProject(options, repoChoice ?? saved?.selectedRepo ?? "");
   const showTabs = showProjectSelector(options);
+  // Assigned-to-me counts for the tabs arrive separately, so they never hold up the page.
+  const tabRepos = options.map((o) => o.repo);
+  const counts = useQuery({
+    queryKey: [...COUNTS_QUERY_KEY, tabRepos.join(",")],
+    queryFn: () => fetchCounts({ repos: tabRepos }),
+    enabled: showTabs,
+    staleTime: 5 * 60_000,
+  });
 
   async function savePreferences(patch: Partial<Preferences>) {
     if (settings.status !== "ready") return false;
@@ -163,6 +174,7 @@ export function IssuesScreen({
       {showTabs ? (
         <ProjectSelector
           options={options}
+          counts={counts.data?.counts}
           selectedKey={selected?.key ?? null}
           onSelect={selectProject}
           theme={theme}
@@ -181,6 +193,7 @@ export function IssuesScreen({
           onPress={() => {
             void projects.refetch();
             void others.refetch();
+            void queryClient.invalidateQueries({ queryKey: COUNTS_QUERY_KEY });
             void queryClient.invalidateQueries({ queryKey: PAGE_QUERY_KEY });
           }}
           style={s.iconButton}

@@ -844,3 +844,33 @@ describe("filterOptions", () => {
     await expect(mod.filterOptions({ repo: "octo/repo" })).rejects.toThrow("is not installed");
   });
 });
+
+describe("assignedCounts", () => {
+  it("counts each repository's open issues assigned to me in one GraphQL request", async () => {
+    fake.gh = (args) => {
+      expect(args.slice(0, 2)).toEqual(["api", "graphql"]);
+      return JSON.stringify({ data: { r0: { issueCount: 9 }, r1: { issueCount: 0 } } });
+    };
+
+    const result = await mod.assignedCounts({ repos: ["octo/a", "octo/b"] });
+
+    expect(result).toEqual({ counts: { "octo/a": 9, "octo/b": 0 } });
+    const [call] = ghCalls("api graphql");
+    const fields = searchFields(call.args);
+    // Repository names travel as variables, never spliced into the query text.
+    expect(fields.q0).toBe("repo:octo/a is:issue is:open assignee:@me");
+    expect(fields.q1).toBe("repo:octo/b is:issue is:open assignee:@me");
+    expect(fields.query).toContain("r0: search(query: $q0, type: ISSUE, first: 0)");
+    expect(fields.query).not.toContain("octo/");
+  });
+
+  it("makes no request without repositories", async () => {
+    expect(await mod.assignedCounts({ repos: [] })).toEqual({ counts: {} });
+    expect(ghCalls("api graphql")).toEqual([]);
+  });
+
+  it("gives no counts, rather than failing, when GitHub refuses", async () => {
+    fake.gh = () => ghError("HTTP 502");
+    expect(await mod.assignedCounts({ repos: ["octo/a"] })).toEqual({ counts: {} });
+  });
+});

@@ -36,12 +36,15 @@ export function ProjectSelector({
   options,
   selectedKey,
   onSelect,
+  counts,
   theme,
   layout,
 }: Pick<PluginScreenProps, "theme" | "layout"> & {
   options: ProjectOption[];
   selectedKey: string | null;
   onSelect: (option: ProjectOption) => void;
+  /** Open issues assigned to me, by repository; absent until they arrive. */
+  counts?: Record<string, number>;
 }) {
   return (
     <View
@@ -60,14 +63,16 @@ export function ProjectSelector({
         >
           {options.map((o) => {
             const selected = o.key === selectedKey;
+            const count = counts?.[o.repo];
             const also = o.otherProjects.length ? `, also ${o.otherProjects.join(", ")}` : "";
             const where = o.remote ? ` on ${o.remote.hostLabel}` : "";
+            const assigned = count === undefined ? "" : `, ${count} assigned to you`;
             return (
               <Pressable
                 key={o.key}
                 accessibilityRole="tab"
                 aria-selected={selected}
-                accessibilityLabel={`${o.projectName} (${o.repo}${also})${where}`}
+                accessibilityLabel={`${o.projectName} (${o.repo}${also})${where}${assigned}`}
                 onPress={() => onSelect(o)}
                 style={({ hovered }: { pressed: boolean; hovered?: boolean }) => ({
                   height: CHIP_HEIGHT,
@@ -88,6 +93,20 @@ export function ProjectSelector({
                 </Text>
                 {o.remote ? (
                   <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12 }}>{o.remote.hostLabel}</Text>
+                ) : null}
+                {count !== undefined ? (
+                  <View
+                    style={{
+                      minWidth: 18,
+                      paddingHorizontal: 5,
+                      borderRadius: 9,
+                      backgroundColor: selected ? theme.colors.surface0 : theme.colors.surface2,
+                    }}
+                  >
+                    <Text style={{ color: theme.colors.foregroundMuted, fontSize: 11, textAlign: "center", lineHeight: 16 }}>
+                      {count}
+                    </Text>
+                  </View>
                 ) : null}
               </Pressable>
             );

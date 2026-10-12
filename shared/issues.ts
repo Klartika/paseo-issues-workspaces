@@ -229,6 +229,13 @@ export const filterOptionsRpc = defineRpc({
   }),
 });
 
+/** Open issues assigned to me per repository, for the project tabs; repositories GitHub refuses are left out. */
+export const assignedCountsRpc = defineRpc({
+  name: "issues.assigned-counts",
+  input: z.object({ repos: z.array(z.string()).max(50) }),
+  output: z.object({ counts: z.record(z.string(), z.number()) }),
+});
+
 /** What creating a workspace on another host needs from GitHub. */
 export const issueDetailsRpc = defineRpc({
   name: "issues.details",

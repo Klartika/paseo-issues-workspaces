@@ -427,6 +427,52 @@ describe("issues screen: project picker", () => {
     expect(a.querySelector('[data-icon="BookMarked"]')).not.toBeNull();
   });
 
+  it("shows how many open issues are assigned to me next to each project", async () => {
+    readySettings(prefs());
+    serveProjects([project("octo/a"), project("octo/b")]);
+    serveOptions();
+    servePages({ "p-octo/a": [issue(1)], "p-octo/b": [] });
+    const countRequests: unknown[] = [];
+    host.rpcs.set("issues.assigned-counts", async (input) => {
+      countRequests.push(input);
+      return { counts: { "octo/a": 9, "octo/b": 0 } };
+    });
+    renderScreen();
+
+    const [a, b] = await screen.findAllByRole("tab");
+    await waitFor(() => expect(within(a).getByText("9")).toBeTruthy());
+    expect(within(b).getByText("0")).toBeTruthy();
+    expect(a.getAttribute("aria-label")).toContain("9 assigned to you");
+    expect(countRequests).toEqual([{ repos: ["octo/a", "octo/b"] }]);
+  });
+
+  it("shows the tabs and issues without waiting for the counts", async () => {
+    readySettings(prefs());
+    serveProjects([project("octo/a"), project("octo/b")]);
+    serveOptions();
+    servePages({ "p-octo/a": [issue(1)], "p-octo/b": [] });
+    host.rpcs.set("issues.assigned-counts", () => new Promise(() => {}));
+    renderScreen();
+
+    expect(await screen.findByText("Issue 1")).toBeTruthy();
+    expect(screen.getAllByRole("tab")).toHaveLength(2);
+  });
+
+  it("does not ask for counts when there is only one project", async () => {
+    readySettings(prefs());
+    oneProject([issue(1)]);
+    const countRequests: unknown[] = [];
+    host.rpcs.set("issues.assigned-counts", async (input) => {
+      countRequests.push(input);
+      return { counts: {} };
+    });
+    renderScreen();
+
+    await screen.findByText("Issue 1");
+    await settle();
+    expect(countRequests).toEqual([]);
+  });
+
   it("styles tabs like Paseo's workspace tabs: the selected chip is filled, the others muted", async () => {
     readySettings(prefs());
     serveProjects([project("octo/a"), project("octo/b")]);
