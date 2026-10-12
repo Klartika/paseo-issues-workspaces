@@ -28,7 +28,7 @@ Each daemon host needs the GitHub CLI (`gh`) installed and signed in with `gh au
 
 ## Settings
 
-Open the settings from **Settings → Plugins**:
+Open the settings with the gear button next to the search box, the **Issues Workspaces settings** item in the Command Center, or **Settings → Plugins**:
 
 - **Branch prefix**: the start of new branch names. Defaults to `issue/`.
 - **Agent**: the provider and model that **Create and start an agent** starts. Automatic uses the first ready provider and its default model.

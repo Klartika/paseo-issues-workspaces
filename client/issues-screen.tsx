@@ -36,7 +36,11 @@ export function IssuesScreen({
   layout,
   navigation,
   host,
-}: PluginScreenProps) {
+  onOpenSettings,
+}: PluginScreenProps & {
+  /** Opens the plugin's settings page; screens can't, so the client entry passes this in. */
+  onOpenSettings?: () => void;
+}) {
   const listProjects = useRpc(projectsRpc);
   const fetchCounts = useRpc(assignedCountsRpc);
   const issueDetails = useRpc(issueDetailsRpc);
@@ -204,6 +208,16 @@ export function IssuesScreen({
             <Icon name="RefreshCw" size={18} color={theme.colors.foregroundMuted} />
           )}
         </Pressable>
+        {onOpenSettings ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Issues Workspaces settings"
+            onPress={onOpenSettings}
+            style={s.iconButton}
+          >
+            <Icon name="Settings" size={18} color={theme.colors.foregroundMuted} />
+          </Pressable>
+        ) : null}
       </View>
 
       {projects.isPending ? <ActivityIndicator color={theme.colors.foregroundMuted} /> : null}

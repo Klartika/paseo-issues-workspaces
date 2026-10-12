@@ -21,13 +21,15 @@ function fakeClient() {
     (added[kind] ??= []).push(contribution);
     return () => {};
   };
+  const opened: string[] = [];
   const client = {
+    openSettings: (id: string) => opened.push(id),
     addScreen: record("screen"),
     addSidebarHeaderItem: record("sidebar"),
     addSettingsScreen: record("settings"),
     addCommandCenterItem: record("command"),
   };
-  return { client: client as any, added };
+  return { client: client as any, added, opened };
 }
 
 afterEach(cleanup);
@@ -40,7 +42,10 @@ describe("index.client", () => {
     expect(added.screen.map((s) => s.title)).toEqual(["Issues Workspaces"]);
     expect(added.sidebar.map((s) => s.title)).toEqual(["Issues Workspaces"]);
     expect(added.settings.map((s) => s.title)).toEqual(["Issues Workspaces"]);
-    expect(added.command.map((c) => c.title)).toEqual(["Issues Workspaces"]);
+    expect(added.command.map((c) => c.title)).toEqual([
+      "Issues Workspaces",
+      "Issues Workspaces settings",
+    ]);
   });
 
   it("shows the crossed hammer and wrench in the sidebar and opens the issues screen", () => {
@@ -55,16 +60,30 @@ describe("index.client", () => {
     expect(openScreen).toHaveBeenCalledWith({ screenId: "issues" });
   });
 
-  it("opens the screen from the Command Center", () => {
+  it("gives the issues screen a way to open the plugin's settings", () => {
+    const { client, added, opened } = fakeClient();
+    contribute(client);
+    const { Component } = added.screen[0];
+    const element = Component({ theme: {}, layout: {}, host: {}, params: {} });
+
+    element.props.onOpenSettings();
+
+    expect(opened).toEqual(["preferences"]);
+  });
+
+  it("opens the screen and settings from the Command Center", () => {
     const openScreen = vi.fn();
+    const openSettings = vi.fn();
     added.command[0].onSelect({ openScreen });
+    added.command[1].onSelect({ openSettings });
     expect(openScreen).toHaveBeenCalledWith({ screenId: "issues" });
+    expect(openSettings).toHaveBeenCalledWith("preferences");
     expect(added.settings[0].id).toBe("preferences");
   });
 
-  it("uses the hammer for the settings page and the Command Center", () => {
+  it("uses the hammer for the screen's entries and a gear for its settings command", () => {
     expect(added.settings[0].icon).toBe("Hammer");
-    expect(added.command.map((c) => c.icon)).toEqual(["Hammer"]);
+    expect(added.command.map((c) => c.icon)).toEqual(["Hammer", "Settings"]);
   });
 });
 

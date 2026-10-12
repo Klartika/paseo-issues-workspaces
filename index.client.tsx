@@ -1,4 +1,4 @@
-import type { PluginClientContext, PluginSidebarItemProps } from "@getpaseo/plugin/client";
+import type { PluginClientContext, PluginScreenProps, PluginSidebarItemProps } from "@getpaseo/plugin/client";
 import { SidebarRow } from "@getpaseo/plugin/client/ui";
 import { IssuesScreen } from "./client/issues-screen";
 import { SettingsScreen } from "./client/settings-screen";
@@ -19,7 +19,11 @@ function IssuesItem({ currentScreen, openScreen }: PluginSidebarItemProps) {
 }
 
 export default function contribute(client: PluginClientContext) {
-  client.addScreen({ id: "issues", title: TITLE, Component: IssuesScreen });
+  // The screen's gear needs openSettings, which only the client context has.
+  const Screen = (props: PluginScreenProps) => (
+    <IssuesScreen {...props} onOpenSettings={() => client.openSettings("preferences")} />
+  );
+  client.addScreen({ id: "issues", title: TITLE, Component: Screen });
   client.addSidebarHeaderItem({ id: "issues", title: TITLE, Component: IssuesItem });
   client.addSettingsScreen({ id: "preferences", title: TITLE, icon: ICON, Component: SettingsScreen });
   client.addCommandCenterItem({
@@ -29,6 +33,15 @@ export default function contribute(client: PluginClientContext) {
     context: "global",
     onSelect({ openScreen }) {
       openScreen({ screenId: "issues" });
+    },
+  });
+  client.addCommandCenterItem({
+    id: "open-settings",
+    title: `${TITLE} settings`,
+    icon: "Settings",
+    context: "global",
+    onSelect({ openSettings }) {
+      openSettings("preferences");
     },
   });
   return () => {};

@@ -234,6 +234,41 @@ describe("issues screen: loading", () => {
     expect(screen.queryByText(/dotfiles/)).toBeNull();
   });
 
+  it("opens the plugin's settings from a gear beside refresh", async () => {
+    readySettings(prefs());
+    oneProject([issue(1)]);
+    const onOpenSettings = vi.fn();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <IssuesScreen
+          theme={theme}
+          layout={{ compact: false, platform: "web" }}
+          host={{ id: "srv_here", label: "Laptop" }}
+          navigation={navigation}
+          params={{}}
+          onOpenSettings={onOpenSettings}
+        />
+      </QueryClientProvider>,
+    );
+
+    const gear = await screen.findByRole("button", { name: "Issues Workspaces settings" });
+    expect(gear.querySelector('[data-icon="Settings"]')).not.toBeNull();
+    const refresh = screen.getByRole("button", { name: "Refresh issues" });
+    expect(Boolean(refresh.compareDocumentPosition(gear) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    fireEvent.click(gear);
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it("has no gear when nothing can open settings", async () => {
+    readySettings(prefs());
+    oneProject([issue(1)]);
+    renderScreen();
+
+    await screen.findByText("Issue 1");
+    expect(screen.queryByRole("button", { name: "Issues Workspaces settings" })).toBeNull();
+  });
+
   it("has no title and no summary line above the list", async () => {
     readySettings(prefs());
     oneProject([issue(1), issue(2, { workspace: { id: "w", name: "#2" } })]);
