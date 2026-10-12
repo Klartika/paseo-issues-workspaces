@@ -1,10 +1,14 @@
 # GitHub Issues for Paseo
 
-A [Paseo](https://paseo.sh) plugin that adds a GitHub Issues screen, opened from the sidebar or the Command Center. The screen is empty so far.
+A [Paseo](https://paseo.sh) plugin that lists a project's open GitHub issues.
+
+See [OVERVIEW.md](OVERVIEW.md) for how it finds projects and their issues.
 
 ## Requirements
 
 - Paseo 0.11.2 or later, with plugins enabled on the daemon.
+- The GitHub CLI (`gh`) on the daemon host, signed in with `gh auth login`.
+- Your repositories added to Paseo as projects, with a github.com remote.
 
 ## Develop
 
