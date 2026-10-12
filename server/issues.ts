@@ -64,19 +64,38 @@ async function listWorkspaces(paseo: PaseoApi): Promise<Workspace[]> {
 type GitHubRemote = { remote: string; repo: string };
 
 /**
- * The project's `origin` remote and the github.com repository it points at.
- * Returns the reason as a string when there is none.
+ * Picks the remote whose repository holds the issues: the one chosen with
+ * `gh repo set-default`, then `upstream` (forks keep issues upstream), then `origin`.
+ * Returns the reason as a string when the project has no github.com remote.
  */
 async function resolveRemote(root: string): Promise<GitHubRemote | string> {
   let stdout: string;
   try {
-    ({ stdout } = await run("git", ["-C", root, "remote", "get-url", "origin"]));
+    ({ stdout } = await run("git", ["-C", root, "config", "--get-regexp", "^remote\\..*\\.(url|gh-resolved)$"]));
   } catch {
-    return "no origin remote";
+    return "no git remote";
   }
-  const repo = parseGitHubRemote(stdout);
-  if (!repo) return "remote is not on github.com";
-  return { remote: "origin", repo };
+  const remotes = new Map<string, { url?: string; resolved?: string }>();
+  for (const line of stdout.split("\n")) {
+    const m = line.match(/^remote\.(.+)\.(url|gh-resolved) (.*)$/);
+    if (!m) continue;
+    const entry = remotes.get(m[1]) ?? {};
+    if (m[2] === "url") entry.url = m[3];
+    else entry.resolved = m[3];
+    remotes.set(m[1], entry);
+  }
+  const github = [...remotes].flatMap(([name, r]) => {
+    // gh stores "base", or the chosen owner/repo when it differs from the URL.
+    const repo = r.resolved?.includes("/") ? r.resolved : r.url ? parseGitHubRemote(r.url) : null;
+    return repo ? [{ name, repo, isDefault: Boolean(r.resolved) }] : [];
+  });
+  const pick =
+    github.find((r) => r.isDefault) ??
+    github.find((r) => r.name === "upstream") ??
+    github.find((r) => r.name === "origin") ??
+    github[0];
+  if (!pick) return remotes.size ? "remote is not on github.com" : "no git remote";
+  return { remote: pick.name, repo: pick.repo };
 }
 
 async function localBranches(root: string): Promise<string[]> {
@@ -84,30 +103,65 @@ async function localBranches(root: string): Promise<string[]> {
   return stdout.split("\n").filter(Boolean);
 }
 
-type GitHubProject = {
-  project: Project;
-  /** `owner/repo` on github.com. */
+async function isLinkedWorktree(root: string): Promise<boolean> {
+  try {
+    const { stdout } = await run("git", ["-C", root, "rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"]);
+    const [gitDir, commonDir] = stdout.trim().split("\n");
+    return gitDir !== commonDir;
+  } catch {
+    return false;
+  }
+}
+
+type RepoProjects = {
   repo: string;
+  /** Where new workspaces are created: a main checkout rather than a linked worktree. */
+  primary: Project;
   remote: string;
+  /** Every project on this repository. Their workspaces all count as coverage. */
+  projectIds: Set<string>;
+  roots: string[];
+  otherProjects: string[];
 };
 
-/** The host's git projects that have a github.com remote. */
-async function githubProjects(projects: Project[]) {
+/** GitHub repositories behind the host's git projects. Several projects can share one repository. */
+async function githubRepos(projects: Project[]) {
   const resolved = await Promise.all(
     projects
       .filter((p) => p.kind === "git")
-      .map(async (p) => ({ project: p, remote: await resolveRemote(p.root) })),
+      .map(async (p) => ({ project: p, remote: await resolveRemote(p.root), linked: await isLinkedWorktree(p.root) })),
   );
   const skipped: { projectName: string; reason: string }[] = [];
-  const found: GitHubProject[] = [];
+  const candidates = new Map<string, typeof resolved>();
   for (const entry of resolved) {
     if (typeof entry.remote === "string") {
       skipped.push({ projectName: entry.project.name, reason: entry.remote });
       continue;
     }
-    found.push({ project: entry.project, repo: entry.remote.repo, remote: entry.remote.remote });
+    const key = entry.remote.repo.toLowerCase();
+    candidates.set(key, [...(candidates.get(key) ?? []), entry]);
   }
-  return { projects: found, skipped };
+  const repos = new Map<string, RepoProjects>();
+  for (const [key, entries] of candidates) {
+    entries.sort((a, b) => Number(a.linked) - Number(b.linked) || a.project.name.localeCompare(b.project.name));
+    const first = entries[0];
+    const remote = first.remote as GitHubRemote;
+    repos.set(key, {
+      repo: remote.repo,
+      primary: first.project,
+      remote: remote.remote,
+      projectIds: new Set(entries.map((e) => e.project.id)),
+      roots: entries.map((e) => e.project.root),
+      otherProjects: entries.slice(1).map((e) => e.project.name),
+    });
+  }
+  return { repos, skipped };
+}
+
+/** Local branches across every checkout of a repository. Worktrees share theirs. */
+async function repoBranches(roots: string[]): Promise<string[]> {
+  const lists = await Promise.all(roots.map((root) => localBranches(root).catch(() => [])));
+  return [...new Set(lists.flat())];
 }
 
 function coverage(n: number, branchPrefix: string, workspaces: Workspace[], branches: string[]) {
@@ -138,10 +192,10 @@ async function listIssues(repo: string) {
   return JSON.parse(stdout) as ListItem[];
 }
 
-/** What coverage needs to know about one project: its workspaces and local branches. */
-async function coverageContext(paseo: PaseoApi, p: GitHubProject, workspaces?: Workspace[]) {
-  const [all, branches] = await Promise.all([workspaces ?? listWorkspaces(paseo), localBranches(p.project.root)]);
-  return { workspaces: all.filter((w) => w.projectId === p.project.id), branches };
+/** What coverage needs to know about one repository: its workspaces and local branches. */
+async function coverageContext(paseo: PaseoApi, r: RepoProjects, workspaces?: Workspace[]) {
+  const [all, branches] = await Promise.all([workspaces ?? listWorkspaces(paseo), repoBranches(r.roots)]);
+  return { workspaces: all.filter((w) => r.projectIds.has(w.projectId)), branches };
 }
 
 function toIssues(items: ListItem[], branchPrefix: string, context: { workspaces: Workspace[]; branches: string[] }) {
@@ -155,24 +209,25 @@ function toIssues(items: ListItem[], branchPrefix: string, context: { workspaces
   );
 }
 
-/** This host's GitHub projects, for the project picker. */
+/** This host's GitHub projects, one per repository, for the project picker. */
 export async function projectList(paseo: PaseoApi) {
-  const { projects, skipped } = await githubProjects(await listProjects(paseo));
-  const choices = projects.map((p) => ({
-    projectId: p.project.id,
-    projectName: p.project.name,
-    repo: p.repo,
+  const { repos, skipped } = await githubRepos(await listProjects(paseo));
+  const choices = [...repos.values()].map((r) => ({
+    projectId: r.primary.id,
+    projectName: r.primary.name,
+    repo: r.repo,
+    otherProjects: r.otherProjects,
   }));
   choices.sort((a, b) => a.projectName.localeCompare(b.projectName));
   return { repos: choices, skipped };
 }
 
-/** One project's open issues. `projectId` names one of this host's projects. */
+/** One repository's open issues. `projectId` names one of this host's projects. */
 export async function issueList(paseo: PaseoApi, prefs: Preferences, { projectId }: { projectId: string }) {
-  const { projects } = await githubProjects(await listProjects(paseo));
-  const p = projects.find((candidate) => candidate.project.id === projectId);
-  if (!p) throw new Error("That project is no longer in Paseo, or no longer has a github.com remote");
-  const [items, context] = await Promise.all([listIssues(p.repo), coverageContext(paseo, p)]);
+  const { repos } = await githubRepos(await listProjects(paseo));
+  const r = [...repos.values()].find((candidate) => candidate.projectIds.has(projectId));
+  if (!r) throw new Error("That project is no longer in Paseo, or no longer has a github.com remote");
+  const [items, context] = await Promise.all([listIssues(r.repo), coverageContext(paseo, r)]);
   return { issues: toIssues(items, prefs.branchPrefix, context) };
 }
 
@@ -188,10 +243,10 @@ export async function createWorkspace(
   if (inFlight.has(key)) throw new Error(`#${n} is already being created`);
   inFlight.add(key);
   try {
-    const { projects } = await githubProjects(await listProjects(paseo));
-    const target = projects.find((p) => p.project.id === projectId);
+    const { repos } = await githubRepos(await listProjects(paseo));
+    const target = [...repos.values()].find((r) => r.projectIds.has(projectId));
     if (!target) throw new Error("That project is no longer in Paseo, or no longer has a github.com remote");
-    const project = target.project;
+    const project = target.primary;
 
     const [issue, repo] = await Promise.all([
       gh(["issue", "view", String(n), "--repo", target.repo, "--json", "title,state"]),
@@ -202,8 +257,8 @@ export async function createWorkspace(
     const defaultBranch = repo.stdout.trim();
     if (!defaultBranch) throw new Error(`${target.repo} has no default branch`);
 
-    const own = (await listWorkspaces(paseo)).filter((w) => w.projectId === projectId);
-    const existing = coverage(n, prefs.branchPrefix, own, await localBranches(project.root));
+    const own = (await listWorkspaces(paseo)).filter((w) => target.projectIds.has(w.projectId));
+    const existing = coverage(n, prefs.branchPrefix, own, await repoBranches(target.roots));
     if (existing.workspace) throw new Error(`#${n} already has workspace “${existing.workspace.name}”`);
     if (existing.orphanBranch) throw new Error(`#${n} already has local branch ${existing.orphanBranch}`);
 

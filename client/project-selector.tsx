@@ -18,12 +18,13 @@ export function ProjectSelector({
       <View accessibilityRole="tablist" accessibilityLabel="Project" style={{ flexDirection: "row", gap: 6 }}>
         {options.map((o) => {
           const selected = o.projectId === selectedId;
+          const also = o.otherProjects.length ? `, also ${o.otherProjects.join(", ")}` : "";
           return (
             <Pressable
               key={o.projectId}
               accessibilityRole="tab"
               aria-selected={selected}
-              accessibilityLabel={`${o.projectName} (${o.repo})`}
+              accessibilityLabel={`${o.projectName} (${o.repo}${also})`}
               onPress={() => onSelect(o)}
               style={{
                 paddingVertical: 4,

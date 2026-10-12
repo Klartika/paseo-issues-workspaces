@@ -8,11 +8,11 @@ Each issue shows its title and number and a **Create workspace** button, or **Op
 
 ## How it finds projects
 
-The plugin looks at every git project on the host and reads its `origin` remote. A project is included when that remote points at github.com; projects without one are left out.
+The plugin looks at every git project on the host and reads its remotes. A project is included when a remote points at github.com. When a project has several remotes, it uses the one picked with `gh repo set-default`, then `upstream`, then `origin`, so a fork shows the upstream repository's issues. Projects without a github.com remote are left out. Several projects on the same repository, such as a checkout and a linked worktree, appear once, under the main checkout.
 
 A new workspace is a worktree titled `#<number> <issue title>`, on a new branch `issue/<number>-<slug>` taken from a freshly fetched copy of the repository's default branch.
 
-An issue counts as covered when a workspace in the project has a title starting with `#<number>`, or a branch that starts with the branch prefix and the number, or contains `<number>-` after a slash. When a local branch exists for an issue but no workspace does, for example after archiving one, the plugin shows the branch and does not create a second one.
+An issue counts as covered when a workspace in any project on the same repository has a title starting with `#<number>`, or a branch that starts with the branch prefix and the number, or contains `<number>-` after a slash. When a local branch exists for an issue but no workspace does, for example after archiving one, the plugin shows the branch and does not create a second one.
 
 ## Setup
 

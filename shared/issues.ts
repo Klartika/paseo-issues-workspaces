@@ -83,12 +83,15 @@ const issue = z.object({
 });
 export type Issue = z.infer<typeof issue>;
 
-/** One of this host's projects and the GitHub repository behind it. */
+/** A GitHub repository behind one or more of this host's projects. */
 const repoProject = z.object({
+  /** The project new workspaces go to: a main checkout rather than a linked worktree. */
   projectId: z.string(),
   projectName: z.string(),
   /** `owner/repo` on github.com. */
   repo: z.string(),
+  /** Other projects on the same repository, such as linked worktrees. */
+  otherProjects: z.array(z.string()),
 });
 export type RepoProject = z.infer<typeof repoProject>;
 
