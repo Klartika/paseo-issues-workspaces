@@ -1,7 +1,7 @@
 {
   "id": "issues-workspaces",
   "name": "GitHub Issues",
-  "description": "Browse a project's open GitHub issues.",
+  "description": "Browse a project's open GitHub issues and create a worktree workspace for one.",
   "requirements": {
     "paseo": ">=0.11.2"
   }

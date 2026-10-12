@@ -1,21 +1,28 @@
 import type { PluginScreenProps } from "@getpaseo/plugin/client";
 import { openExternalUrl } from "@getpaseo/plugin/client";
+import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useMemo } from "react";
-import { Pressable, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import type { Issue } from "../shared/issues";
 
 type Props = Pick<PluginScreenProps, "theme" | "layout">;
 
-/** One issue: its title, which opens it on GitHub, and its number. */
+/** One issue: its title, which opens it on GitHub, its number, and a button to act on it. */
 export function IssueRow({
   issue,
   first,
+  pending,
+  busy,
+  onCreate,
   theme,
   layout,
 }: Props & {
   issue: Issue;
   /** The first row in its box draws no divider above it. */
   first: boolean;
+  pending: boolean;
+  busy: boolean;
+  onCreate: () => void;
 }) {
   const s = useMemo(
     () => ({
@@ -47,6 +54,50 @@ export function IssueRow({
         </Pressable>
         <Text style={s.meta}>#{issue.number}</Text>
       </View>
+      <IssueAction issue={issue} pending={pending} busy={busy} theme={theme} onCreate={onCreate} />
     </View>
+  );
+}
+
+function IssueAction({
+  issue,
+  pending,
+  busy,
+  theme,
+  onCreate,
+}: {
+  issue: Issue;
+  pending: boolean;
+  busy: boolean;
+  theme: PluginScreenProps["theme"];
+  onCreate: () => void;
+}) {
+  const pad = { paddingVertical: 6, paddingHorizontal: 12 };
+  const shell = {
+    flexDirection: "row" as const,
+    alignItems: "stretch" as const,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: 6,
+    backgroundColor: theme.colors.surface2,
+    overflow: "hidden" as const,
+  };
+  const label = { color: theme.colors.foreground, fontSize: 13, fontWeight: "600" as const };
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Create workspace for issue ${issue.number}`}
+      disabled={busy}
+      onPress={onCreate}
+      style={[shell, pad, { alignItems: "center", gap: 6 }, busy && !pending ? { opacity: 0.5 } : null]}
+    >
+      {pending ? (
+        <ActivityIndicator size="small" color={theme.colors.accent} />
+      ) : (
+        <Icon name="GitBranchPlus" size={16} color={theme.colors.accent} />
+      )}
+      <Text style={label}>{pending ? "Creating…" : "Create workspace"}</Text>
+    </Pressable>
   );
 }

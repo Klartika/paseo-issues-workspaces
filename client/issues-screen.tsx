@@ -1,10 +1,10 @@
 import type { PluginScreenProps } from "@getpaseo/plugin/client";
 import { useRpc } from "@getpaseo/plugin/client";
-import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Icon, ScrollView, useToast } from "@getpaseo/plugin/client/react-native";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
-import { projectsRpc } from "../shared/issues";
+import { createWorkspaceRpc, projectsRpc, type Issue, type RepoProject } from "../shared/issues";
 import { showProjectSelector } from "./issue-list";
 import { ProjectSelector } from "./project-selector";
 import { ISSUES_QUERY_KEY, RepoTable } from "./repo-table";
@@ -18,13 +18,29 @@ export function IssuesScreen({
   layout,
 }: PluginScreenProps) {
   const listProjects = useRpc(projectsRpc);
+  const createWorkspace = useRpc(createWorkspaceRpc);
   const queryClient = useQueryClient();
+  const toast = useToast();
+  const [pending, setPending] = useState<number | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const projects = useQuery({ queryKey: PROJECTS_QUERY_KEY, queryFn: () => listProjects({}) });
   const options = projects.data?.repos ?? [];
   const selected = options.find((o) => o.projectId === selectedId) ?? options[0] ?? null;
   const showTabs = showProjectSelector(options);
+
+  const create = useMutation({
+    mutationFn: ({ project, issue }: { project: RepoProject; issue: Issue }) =>
+      createWorkspace({ projectId: project.projectId, number: issue.number }),
+    onMutate: ({ issue }) => setPending(issue.number),
+    onSuccess: (_result, { issue }) => {
+      toast.show(`Created workspace for #${issue.number}`, { variant: "success" });
+    },
+    onError: (error, { issue }) => {
+      toast.show(`#${issue.number}: ${message(error)}`, { variant: "error" });
+    },
+    onSettled: () => setPending(null),
+  });
 
   const s = useMemo(() => {
     const pad = layout.compact ? 16 : 24;
@@ -82,6 +98,9 @@ export function IssuesScreen({
       {selected ? (
         <RepoTable
           project={selected}
+          pendingNumber={pending}
+          busy={pending !== null}
+          onCreate={(issue) => create.mutate({ project: selected, issue })}
           theme={theme}
           layout={layout}
         />

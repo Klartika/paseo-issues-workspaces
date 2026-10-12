@@ -1,5 +1,5 @@
 import { execCommand, type PluginHandlerContext } from "@getpaseo/plugin/server";
-import { parseGitHubRemote } from "../shared/issues";
+import { BRANCH_PREFIX, branchName, parseGitHubRemote } from "../shared/issues";
 
 type PaseoApi = PluginHandlerContext["paseo"];
 
@@ -122,4 +122,48 @@ export async function issueList(paseo: PaseoApi, { projectId }: { projectId: str
   const p = projects.find((candidate) => candidate.project.id === projectId);
   if (!p) throw new Error("That project is no longer in Paseo, or no longer has a github.com remote");
   return { issues: await listIssues(p.repo) };
+}
+
+// A double press must not create two worktrees for one issue.
+const inFlight = new Set<string>();
+
+export async function createWorkspace(
+  paseo: PaseoApi,
+  { projectId, number: n }: { projectId: string; number: number },
+) {
+  const key = `${projectId}#${n}`;
+  if (inFlight.has(key)) throw new Error(`#${n} is already being created`);
+  inFlight.add(key);
+  try {
+    const { projects } = await githubProjects(await listProjects(paseo));
+    const target = projects.find((p) => p.project.id === projectId);
+    if (!target) throw new Error("That project is no longer in Paseo, or no longer has a github.com remote");
+    const project = target.project;
+
+    const [issue, repo] = await Promise.all([
+      gh(["issue", "view", String(n), "--repo", target.repo, "--json", "title,state"]),
+      gh(["repo", "view", target.repo, "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"]),
+    ]);
+    const { title, state } = JSON.parse(issue.stdout) as { title: string; state: string };
+    if (state !== "OPEN") throw new Error(`#${n} is ${state.toLowerCase()}`);
+    const defaultBranch = repo.stdout.trim();
+    if (!defaultBranch) throw new Error(`${target.repo} has no default branch`);
+
+    await run("git", ["-C", project.root, "fetch", target.remote, defaultBranch, "--quiet"]);
+    const branch = branchName(BRANCH_PREFIX, n, title);
+    const workspace = await paseo.workspaces.create({
+      title: `#${n} ${title}`,
+      source: {
+        kind: "worktree",
+        cwd: project.root,
+        action: "branch-off",
+        branchName: branch,
+        baseBranch: `${target.remote}/${defaultBranch}`,
+      },
+    });
+    console.log(`created workspace ${workspace.id} for ${target.repo}#${n} on ${branch}`);
+    return { workspaceId: workspace.id, branch };
+  } finally {
+    inFlight.delete(key);
+  }
 }

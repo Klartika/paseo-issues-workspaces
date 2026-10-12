@@ -3,7 +3,7 @@ import { useRpc } from "@getpaseo/plugin/client";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
-import { issuesRpc, type RepoProject } from "../shared/issues";
+import { issuesRpc, type Issue, type RepoProject } from "../shared/issues";
 import { IssueRow } from "./issue-row";
 
 export const ISSUES_QUERY_KEY = ["issues.list"];
@@ -13,10 +13,17 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
 /** The selected project's open issues, newest first. */
 export function RepoTable({
   project,
+  pendingNumber,
+  busy,
+  onCreate,
   theme,
   layout,
 }: Pick<PluginScreenProps, "theme" | "layout"> & {
   project: RepoProject;
+  /** The issue number being created, if any. */
+  pendingNumber: number | null;
+  busy: boolean;
+  onCreate: (issue: Issue) => void;
 }) {
   const fetchIssues = useRpc(issuesRpc);
   const result = useQuery({
@@ -55,6 +62,9 @@ export function RepoTable({
           key={issue.number}
           issue={issue}
           first={index === 0}
+          pending={pendingNumber === issue.number}
+          busy={busy}
+          onCreate={() => onCreate(issue)}
           theme={theme}
           layout={layout}
         />

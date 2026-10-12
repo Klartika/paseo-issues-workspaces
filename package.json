@@ -1,12 +1,13 @@
 {
   "name": "paseo-issues-workspaces",
   "version": "0.1.0",
-  "description": "Paseo plugin: browse a project's open GitHub issues.",
+  "description": "Paseo plugin: browse a project's open GitHub issues and create a worktree workspace for one.",
   "keywords": [
     "paseo",
     "paseo-plugin",
     "github",
-    "issues"
+    "issues",
+    "worktree"
   ],
   "license": "MIT",
   "repository": {

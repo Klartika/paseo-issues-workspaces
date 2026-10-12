@@ -1,6 +1,22 @@
 import { defineRpc } from "@getpaseo/plugin";
 import { z } from "zod";
 
+/** New branches are named `<prefix><number>-<slug>`. */
+export const BRANCH_PREFIX = "issue/";
+
+const SLUG_LENGTH = 40;
+
+/** `<prefix><n>-<slug>`, the slug cut at a word boundary to at most 40 characters. */
+export function branchName(prefix: string, n: number, title: string): string {
+  const words = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  let slug = words.slice(0, SLUG_LENGTH);
+  if (words.length > SLUG_LENGTH && words[SLUG_LENGTH] !== "-" && slug.includes("-")) {
+    slug = slug.slice(0, slug.lastIndexOf("-"));
+  }
+  slug = slug.replace(/-+$/, "");
+  return slug ? `${prefix}${n}-${slug}` : `${prefix}${n}`;
+}
+
 /** `owner/repo` for a github.com remote URL, else null. */
 export function parseGitHubRemote(url: string): string | null {
   const m = url
@@ -41,4 +57,10 @@ export const issuesRpc = defineRpc({
   name: "issues.list",
   input: z.object({ projectId: z.string() }),
   output: z.object({ issues: z.array(issue) }),
+});
+
+export const createWorkspaceRpc = defineRpc({
+  name: "issues.create-workspace",
+  input: z.object({ projectId: z.string(), number: z.number() }),
+  output: z.object({ workspaceId: z.string(), branch: z.string() }),
 });
