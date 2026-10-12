@@ -4,12 +4,14 @@ import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useMemo } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import type { Issue } from "../shared/issues";
+import type { RemoteWorkspace } from "./issue-list";
 
 type Props = Pick<PluginScreenProps, "theme" | "layout" | "navigation">;
 
 /** One issue: its title, which opens it on GitHub, its number, and a button to act on it. */
 export function IssueRow({
   issue,
+  elsewhere,
   first,
   pending,
   busy,
@@ -19,6 +21,8 @@ export function IssueRow({
   navigation,
 }: Props & {
   issue: Issue;
+  /** Workspaces for this issue on other hosts. */
+  elsewhere: RemoteWorkspace[];
   /** The first row in its box draws no divider above it. */
   first: boolean;
   pending: boolean;
@@ -39,6 +43,7 @@ export function IssueRow({
       text: { flex: layout.compact ? undefined : 1, gap: 4 },
       title: { color: theme.colors.foreground, fontSize: 16, fontWeight: "600" as const },
       meta: { color: theme.colors.foregroundMuted, fontSize: 12 },
+      link: { color: theme.colors.accent, fontSize: 12 },
     }),
     [theme, layout.compact, first],
   );
@@ -57,6 +62,9 @@ export function IssueRow({
         {issue.orphanBranch ? (
           <Text style={s.meta}>Local branch {issue.orphanBranch} exists without a workspace</Text>
         ) : null}
+        {elsewhere.map((w) => (
+          <ElsewhereLink key={`${w.serverId}/${w.workspaceId}`} workspace={w} style={s.link} navigation={navigation} />
+        ))}
       </View>
       <IssueAction
         issue={issue}
@@ -69,6 +77,28 @@ export function IssueRow({
         }
       />
     </View>
+  );
+}
+
+function ElsewhereLink({
+  workspace: w,
+  style,
+  navigation,
+}: {
+  workspace: RemoteWorkspace;
+  style: object;
+  navigation: PluginScreenProps["navigation"];
+}) {
+  const label = `Workspace on ${w.hostLabel}: ${w.name}`;
+  if (!navigation) return <Text style={style}>{label}</Text>;
+  return (
+    <Pressable
+      accessibilityRole="link"
+      accessibilityLabel={`Open workspace ${w.name} on ${w.hostLabel}`}
+      onPress={() => navigation.openWorkspace({ workspaceId: w.workspaceId, serverId: w.serverId })}
+    >
+      <Text style={style}>{label}</Text>
+    </Pressable>
   );
 }
 

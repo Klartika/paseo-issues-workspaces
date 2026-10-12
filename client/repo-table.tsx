@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 import { issuesRpc, type Issue, type RepoProject } from "../shared/issues";
+import { findRemoteWorkspaces, type RemoteWorkspace } from "./issue-list";
 import { IssueRow } from "./issue-row";
 
 export const ISSUES_QUERY_KEY = ["issues.list"];
@@ -13,6 +14,8 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
 /** The selected project's open issues, newest first. */
 export function RepoTable({
   project,
+  branchPrefix,
+  otherHostWorkspaces,
   pendingNumber,
   busy,
   onCreate,
@@ -21,6 +24,9 @@ export function RepoTable({
   navigation,
 }: Pick<PluginScreenProps, "theme" | "layout" | "navigation"> & {
   project: RepoProject;
+  branchPrefix: string;
+  /** Every other host's workspaces, linked from the issues they cover. */
+  otherHostWorkspaces: RemoteWorkspace[] | undefined;
   /** The issue number being created, if any. */
   pendingNumber: number | null;
   busy: boolean;
@@ -62,6 +68,9 @@ export function RepoTable({
         <IssueRow
           key={issue.number}
           issue={issue}
+          elsewhere={
+            issue.workspace ? [] : findRemoteWorkspaces(otherHostWorkspaces, project.repo, issue.number, branchPrefix)
+          }
           first={index === 0}
           pending={pendingNumber === issue.number}
           busy={busy}

@@ -6,6 +6,8 @@ import { useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import {
   createWorkspaceRpc,
+  DEFAULT_PREFERENCES,
+  effectivePreferences,
   preferences,
   projectsRpc,
   type Issue,
@@ -13,6 +15,7 @@ import {
   type RepoProject,
 } from "../shared/issues";
 import { pickProject, showProjectSelector } from "./issue-list";
+import { OTHER_HOSTS_QUERY_KEY, useOtherHosts } from "./other-hosts";
 import { ProjectSelector } from "./project-selector";
 import { ISSUES_QUERY_KEY, RepoTable } from "./repo-table";
 
@@ -24,6 +27,7 @@ export function IssuesScreen({
   theme,
   layout,
   navigation,
+  host,
 }: PluginScreenProps) {
   const listProjects = useRpc(projectsRpc);
   const createWorkspace = useRpc(createWorkspaceRpc);
@@ -35,8 +39,10 @@ export function IssuesScreen({
   const saved = settings.status === "ready" ? settings.values : null;
   // Local choices apply at once; saved values carry them across sessions and clients.
   const [repoChoice, setRepoChoice] = useState<string | null>(null);
+  const prefs = effectivePreferences(saved ?? DEFAULT_PREFERENCES);
 
   const projects = useQuery({ queryKey: PROJECTS_QUERY_KEY, queryFn: () => listProjects({}) });
+  const others = useOtherHosts(host.id);
   const options = projects.data?.repos ?? [];
   const selected = pickProject(options, repoChoice ?? saved?.selectedRepo ?? "");
   const showTabs = showProjectSelector(options);
@@ -63,6 +69,7 @@ export function IssuesScreen({
     onSettled: () => {
       setPending(null);
       void queryClient.invalidateQueries({ queryKey: ISSUES_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: OTHER_HOSTS_QUERY_KEY });
     },
   });
 
@@ -78,7 +85,7 @@ export function IssuesScreen({
     };
   }, [theme, layout.compact]);
 
-  const refreshing = projects.isFetching;
+  const refreshing = projects.isFetching || others.isFetching;
 
   return (
     <ScrollView style={s.screen} contentContainerStyle={s.content}>
@@ -98,6 +105,7 @@ export function IssuesScreen({
           disabled={refreshing}
           onPress={() => {
             void projects.refetch();
+            void others.refetch();
             void queryClient.invalidateQueries({ queryKey: ISSUES_QUERY_KEY });
           }}
           style={s.iconButton}
@@ -122,6 +130,8 @@ export function IssuesScreen({
       {selected ? (
         <RepoTable
           project={selected}
+          branchPrefix={prefs.branchPrefix}
+          otherHostWorkspaces={others.data?.workspaces}
           pendingNumber={pending}
           busy={pending !== null}
           onCreate={(issue) => create.mutate({ project: selected, issue })}

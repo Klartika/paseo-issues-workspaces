@@ -12,7 +12,7 @@ The plugin looks at every git project on the host and reads its remotes. A proje
 
 A new workspace is a worktree titled `#<number> <issue title>`, on a new branch `issue/<number>-<slug>` taken from a freshly fetched copy of the repository's default branch.
 
-An issue counts as covered when a workspace in any project on the same repository has a title starting with `#<number>`, or a branch that starts with the branch prefix and the number, or contains `<number>-` after a slash. When a local branch exists for an issue but no workspace does, for example after archiving one, the plugin shows the branch and does not create a second one.
+An issue counts as covered when a workspace in any project on the same repository has a title starting with `#<number>`, or a branch that starts with the branch prefix and the number, or contains `<number>-` after a slash. When a local branch exists for an issue but no workspace does, for example after archiving one, the plugin shows the branch and does not create a second one. An issue that already has a workspace on another online host shows a link to it.
 
 ## Setup
 
