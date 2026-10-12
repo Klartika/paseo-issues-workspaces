@@ -32,7 +32,7 @@ Open the settings with the gear button next to the search box, the **Issues Work
 
 - **Branch prefix**: the start of new branch names. Defaults to `issue/`.
 - **Agent**: the provider and model that **Create and start an agent** starts. Automatic uses the first ready provider and its default model.
-- **Agent prompt**: the agent's first message. `{number}`, `{title}`, `{url}` and `{repo}` are filled in from the issue.
+- **Agent prompt**: the agent's first message. `{number}`, `{title}`, `{url}` and `{repo}` are filled in from the issue. The default asks the agent to read the issue with `gh`, fix the root cause with tests if it reports a bug or otherwise do what it asks, and summarize the change.
 
 The selected project, search and density are saved with these settings. Settings are stored on each host and shared by every client connected to it.
 

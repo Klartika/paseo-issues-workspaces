@@ -10,6 +10,11 @@
     "worktree"
   ],
   "license": "MIT",
+  "author": "Andrew Ma",
+  "homepage": "https://github.com/ajma/paseo-issues-workspaces#readme",
+  "bugs": {
+    "url": "https://github.com/ajma/paseo-issues-workspaces/issues"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ajma/paseo-issues-workspaces.git"

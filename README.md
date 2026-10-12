@@ -10,12 +10,27 @@ See [OVERVIEW.md](OVERVIEW.md) for how it finds issues, names branches, and dete
 - The GitHub CLI (`gh`) on each daemon host, signed in with `gh auth login`.
 - Your repositories added to Paseo as projects, with a github.com remote.
 
+## Install
+
+From npm:
+
+```bash
+paseo plugin install npm:paseo-issues-workspaces
+```
+
+From GitHub:
+
+```bash
+paseo plugin install git:ajma/paseo-issues-workspaces
+```
+
+Install it on every host whose projects you want to see. Use `--host <url>` to target a remote daemon.
+
 ## Develop
 
 ```bash
 npm install
 npm run typecheck
-npm test
 paseo plugin install "$PWD"
 # after edits
 paseo plugin reload issues-workspaces
