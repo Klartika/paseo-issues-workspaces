@@ -1,6 +1,6 @@
-# GitHub Issues for Paseo
+# Issues Workspaces for Paseo
 
-A [Paseo](https://paseo.sh) plugin that lists a project's open GitHub issues, laid out like github.com, and creates a worktree workspace for one with a single press, optionally with an agent working on it.
+A [Paseo](https://paseo.sh) plugin that lets you browse a project's open GitHub issues, laid out like github.com, and create a worktree workspace for one with a single press, optionally with an agent working on it.
 
 See [OVERVIEW.md](OVERVIEW.md) for how it finds issues, names branches, and detects existing workspaces.
 

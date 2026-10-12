@@ -1,4 +1,4 @@
-GitHub Issues lists a project's open GitHub issues, laid out like GitHub's issue list, and creates a workspace for any of them with one press. It can also start an agent in that workspace with a prompt to work on the issue. Open it from the sidebar or the Command Center.
+Issues Workspaces lists a project's open GitHub issues, laid out like GitHub's issue list, and creates a workspace for any of them with one press. It can also start an agent in that workspace with a prompt to work on the issue. Open it from the sidebar or the Command Center.
 
 ## The screen
 

@@ -2,14 +2,16 @@ import type { PluginClientContext, PluginSidebarItemProps } from "@getpaseo/plug
 import { SidebarRow } from "@getpaseo/plugin/client/ui";
 import { IssuesScreen } from "./client/issues-screen";
 import { SettingsScreen } from "./client/settings-screen";
+import { ToolsIcon } from "./client/tools-icon";
 
-const TITLE = "GitHub Issues";
-const ICON = "CircleDot";
+const TITLE = "Issues Workspaces";
+// Fields that take only a Lucide name get the hammer; the sidebar draws hammer and wrench crossed.
+const ICON = "Hammer";
 
 function IssuesItem({ currentScreen, openScreen }: PluginSidebarItemProps) {
   return (
     <SidebarRow
-      icon={ICON}
+      icon={ToolsIcon}
       active={currentScreen?.screenId === "issues"}
       onPress={() => openScreen({ screenId: "issues" })}
     />

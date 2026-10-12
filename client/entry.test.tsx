@@ -13,6 +13,7 @@ vi.mock("@getpaseo/plugin/client/ui", () => ({
 
 const sidebarRows: { icon: unknown; active: boolean; onPress: () => void }[] = [];
 const { default: contribute } = await import("../index.client");
+const { ToolsIcon } = await import("./tools-icon");
 
 function fakeClient() {
   const added: Record<string, any[]> = {};
@@ -35,20 +36,20 @@ describe("index.client", () => {
   const { client, added } = fakeClient();
   contribute(client);
 
-  it("titles everything GitHub Issues", () => {
-    expect(added.screen.map((s) => s.title)).toEqual(["GitHub Issues"]);
-    expect(added.sidebar.map((s) => s.title)).toEqual(["GitHub Issues"]);
-    expect(added.settings.map((s) => s.title)).toEqual(["GitHub Issues"]);
-    expect(added.command.map((c) => c.title)).toEqual(["GitHub Issues"]);
+  it("titles everything Issues Workspaces", () => {
+    expect(added.screen.map((s) => s.title)).toEqual(["Issues Workspaces"]);
+    expect(added.sidebar.map((s) => s.title)).toEqual(["Issues Workspaces"]);
+    expect(added.settings.map((s) => s.title)).toEqual(["Issues Workspaces"]);
+    expect(added.command.map((c) => c.title)).toEqual(["Issues Workspaces"]);
   });
 
-  it("shows GitHub's open issue icon in the sidebar and opens the issues screen", () => {
+  it("shows the crossed hammer and wrench in the sidebar and opens the issues screen", () => {
     const openScreen = vi.fn();
     const { Component } = added.sidebar[0];
     render(<Component currentScreen={{ screenId: "issues", params: {} }} openScreen={openScreen} />);
 
     const row = sidebarRows.at(-1)!;
-    expect(row.icon).toBe("CircleDot");
+    expect(row.icon).toBe(ToolsIcon);
     expect(row.active).toBe(true);
     row.onPress();
     expect(openScreen).toHaveBeenCalledWith({ screenId: "issues" });
@@ -61,8 +62,16 @@ describe("index.client", () => {
     expect(added.settings[0].id).toBe("preferences");
   });
 
-  it("uses GitHub's open issue icon for the settings page and the Command Center", () => {
-    expect(added.settings[0].icon).toBe("CircleDot");
-    expect(added.command.map((c) => c.icon)).toEqual(["CircleDot"]);
+  it("uses the hammer for the settings page and the Command Center", () => {
+    expect(added.settings[0].icon).toBe("Hammer");
+    expect(added.command.map((c) => c.icon)).toEqual(["Hammer"]);
+  });
+});
+
+describe("ToolsIcon", () => {
+  it("draws the embedded crossed-tools mark at the requested size, tinted with the row color", () => {
+    const { container } = render(<ToolsIcon size={20} color="#ff0000" />);
+    expect(container.innerHTML).toContain("data:image/png;base64,");
+    expect(container.innerHTML).not.toContain("data-icon");
   });
 });
