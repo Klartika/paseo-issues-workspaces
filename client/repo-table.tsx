@@ -11,7 +11,7 @@ export const ISSUES_QUERY_KEY = ["issues.list"];
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-/** The selected project's open issues, newest first. */
+/** The selected project's issues as a GitHub-style table, newest first. */
 export function RepoTable({
   project,
   branchPrefix,

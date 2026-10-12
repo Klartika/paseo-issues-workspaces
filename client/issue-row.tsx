@@ -4,11 +4,12 @@ import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useMemo } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import type { Issue } from "../shared/issues";
+import { isDarkTheme, labelColors, openIssueColor, timeAgo } from "./github-style";
 import type { RemoteWorkspace } from "./issue-list";
 
 type Props = Pick<PluginScreenProps, "theme" | "layout" | "navigation">;
 
-/** One issue: its title, which opens it on GitHub, its number, and a button to act on it. */
+/** One issue, laid out like a row of GitHub's issue list. */
 export function IssueRow({
   issue,
   elsewhere,
@@ -29,18 +30,27 @@ export function IssueRow({
   busy: boolean;
   onCreate: () => void;
 }) {
+  const dark = isDarkTheme(theme);
   const s = useMemo(
     () => ({
       row: {
-        flexDirection: (layout.compact ? "column" : "row") as "column" | "row",
-        alignItems: (layout.compact ? "stretch" : "center") as "stretch" | "center",
-        gap: layout.compact ? 8 : 16,
+        flexDirection: "row" as const,
+        alignItems: "flex-start" as const,
+        gap: 8,
         paddingVertical: 10,
         paddingHorizontal: layout.compact ? 12 : 16,
         borderTopWidth: first ? 0 : 1,
         borderTopColor: theme.colors.border,
       },
+      icon: { paddingTop: 3 },
+      body: {
+        flex: 1,
+        flexDirection: (layout.compact ? "column" : "row") as "column" | "row",
+        alignItems: (layout.compact ? "stretch" : "center") as "stretch" | "center",
+        gap: layout.compact ? 8 : 16,
+      },
       text: { flex: layout.compact ? undefined : 1, gap: 4 },
+      titleLine: { flexDirection: "row" as const, flexWrap: "wrap" as const, alignItems: "center" as const, gap: 6 },
       title: { color: theme.colors.foreground, fontSize: 16, fontWeight: "600" as const },
       meta: { color: theme.colors.foregroundMuted, fontSize: 12 },
       link: { color: theme.colors.accent, fontSize: 12 },
@@ -48,34 +58,64 @@ export function IssueRow({
     [theme, layout.compact, first],
   );
 
+  const opened = `#${issue.number} opened ${timeAgo(issue.createdAt)}${issue.author ? ` by ${issue.author}` : ""}`;
+
   return (
     <View style={s.row}>
-      <View style={s.text}>
-        <Pressable
-          accessibilityRole="link"
-          accessibilityLabel={`Open issue ${issue.number} on GitHub: ${issue.title}`}
-          onPress={() => void openExternalUrl(issue.url)}
-        >
-          <Text style={s.title}>{issue.title}</Text>
-        </Pressable>
-        <Text style={s.meta}>#{issue.number}</Text>
-        {issue.orphanBranch ? (
-          <Text style={s.meta}>Local branch {issue.orphanBranch} exists without a workspace</Text>
-        ) : null}
-        {elsewhere.map((w) => (
-          <ElsewhereLink key={`${w.serverId}/${w.workspaceId}`} workspace={w} style={s.link} navigation={navigation} />
-        ))}
+      <View style={s.icon}>
+        <Icon name="CircleDot" size={16} color={openIssueColor(dark)} />
       </View>
-      <IssueAction
-        issue={issue}
-        pending={pending}
-        busy={busy}
-        theme={theme}
-        onCreate={onCreate}
-        onOpen={
-          issue.workspace && navigation ? () => navigation.openWorkspace({ workspaceId: issue.workspace!.id }) : undefined
-        }
-      />
+      <View style={s.body}>
+        <View style={s.text}>
+          <View style={s.titleLine}>
+            <Pressable
+              accessibilityRole="link"
+              accessibilityLabel={`Open issue ${issue.number} on GitHub: ${issue.title}`}
+              onPress={() => void openExternalUrl(issue.url)}
+            >
+              <Text style={s.title}>{issue.title}</Text>
+            </Pressable>
+            {issue.labels.map((label) => (
+              <IssueLabel key={label.name} name={label.name} color={label.color} dark={dark} />
+            ))}
+          </View>
+          <Text style={s.meta}>{opened}</Text>
+          {issue.orphanBranch ? (
+            <Text style={s.meta}>Local branch {issue.orphanBranch} exists without a workspace</Text>
+          ) : null}
+          {elsewhere.map((w) => (
+            <ElsewhereLink key={`${w.serverId}/${w.workspaceId}`} workspace={w} style={s.link} navigation={navigation} />
+          ))}
+        </View>
+        <IssueAction
+          issue={issue}
+          pending={pending}
+          busy={busy}
+          theme={theme}
+          onCreate={onCreate}
+          onOpen={
+            issue.workspace && navigation ? () => navigation.openWorkspace({ workspaceId: issue.workspace!.id }) : undefined
+          }
+        />
+      </View>
+    </View>
+  );
+}
+
+function IssueLabel({ name, color, dark }: { name: string; color: string; dark: boolean }) {
+  const c = labelColors(color, dark);
+  return (
+    <View
+      style={{
+        paddingHorizontal: 7,
+        paddingVertical: 1,
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: c.borderColor,
+        backgroundColor: c.backgroundColor,
+      }}
+    >
+      <Text style={{ color: c.color, fontSize: 12, fontWeight: "500", lineHeight: 18 }}>{name}</Text>
     </View>
   );
 }

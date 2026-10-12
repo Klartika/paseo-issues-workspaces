@@ -178,6 +178,9 @@ type ListItem = {
   number: number;
   title: string;
   url: string;
+  labels: { name: string; color: string }[];
+  author: { login: string } | null;
+  createdAt: string;
 };
 
 const MAX_ISSUES = 100;
@@ -187,7 +190,7 @@ async function listIssues(repo: string) {
   const { stdout } = await gh([
     "issue", "list", "--repo", repo, "--state", "open",
     "--limit", String(MAX_ISSUES),
-    "--json", "number,title,url",
+    "--json", "number,title,url,labels,author,createdAt",
   ]);
   return JSON.parse(stdout) as ListItem[];
 }
@@ -204,6 +207,10 @@ function toIssues(items: ListItem[], branchPrefix: string, context: { workspaces
       number: i.number,
       title: i.title,
       url: i.url,
+      labels: i.labels.map((l) => ({ name: l.name, color: l.color })),
+      // gh lists apps as "app/<name>"; GitHub shows them by name.
+      author: i.author?.login.replace(/^app\//, "") ?? null,
+      createdAt: i.createdAt,
       ...coverage(i.number, branchPrefix, context.workspaces, context.branches),
     }),
   );

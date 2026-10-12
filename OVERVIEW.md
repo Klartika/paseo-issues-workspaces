@@ -1,10 +1,10 @@
-GitHub Issues lists a project's open GitHub issues and creates a workspace for any of them with one press. Open it from the sidebar or the Command Center.
+GitHub Issues lists a project's open GitHub issues, laid out like GitHub's issue list, and creates a workspace for any of them with one press. Open it from the sidebar or the Command Center.
 
 ## The screen
 
 When you have more than one GitHub project, a row of tabs at the top picks the one to show. Below it are that project's open issues, newest first, up to 100 of them.
 
-Each issue shows its title and number and a **Create workspace** button, or **Open workspace** when a workspace already covers it. Tapping an issue's title opens it on GitHub.
+Each issue shows GitHub's label colors and a **Create workspace** button, or **Open workspace** when a workspace already covers it. Tapping an issue's title opens it on GitHub.
 
 ## How it finds projects
 

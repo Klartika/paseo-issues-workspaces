@@ -76,6 +76,11 @@ const issue = z.object({
   number: z.number(),
   title: z.string(),
   url: z.string(),
+  /** `color` is GitHub's hex value without the leading `#`. */
+  labels: z.array(z.object({ name: z.string(), color: z.string() })),
+  /** Login of whoever opened the issue; apps appear without their `app/` prefix. */
+  author: z.string().nullable(),
+  createdAt: z.string(),
   /** The workspace in this project that already covers this issue, if one does. */
   workspace: z.object({ id: z.string(), name: z.string() }).nullable(),
   /** A local branch for this issue with no active workspace (e.g. the workspace was archived). */
