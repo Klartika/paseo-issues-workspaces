@@ -20,6 +20,11 @@ export const host = {
   },
   hosts: [] as { serverId: string; label: string; status: string }[],
   remoteWorkspaces: new Map<string, unknown[]>(),
+  remoteProjects: new Map<string, unknown[]>(),
+  remoteProviders: new Map<string, unknown[]>(),
+  /** Workspaces and agents created through another host's connection, by server id. */
+  remoteCreated: [] as { serverId: string; options: any }[],
+  remoteAgents: [] as { serverId: string; options: any }[],
   toasts: [] as { message: string; variant?: string }[],
   opened: [] as string[],
   providers: [] as unknown[],
@@ -36,7 +41,21 @@ export const clientModule = {
   getPaseoClient: (serverId: string) => ({
     workspaces: {
       list: async () => ({ entries: host.remoteWorkspaces.get(serverId) ?? [], pageInfo: { hasMore: false } }),
+      create: async (options: any) => {
+        host.remoteCreated.push({ serverId, options });
+        return {
+          id: `wks_on_${serverId}`,
+          agents: {
+            create: async (agentOptions: any) => {
+              host.remoteAgents.push({ serverId, options: agentOptions });
+              return { id: `agt_on_${serverId}` };
+            },
+          },
+        };
+      },
     },
+    projects: { list: async () => ({ projects: host.remoteProjects.get(serverId) ?? [] }) },
+    providers: { snapshot: async () => ({ entries: host.remoteProviders.get(serverId) ?? [] }) },
   }),
   usePaseo: () => ({ providers: { snapshot: async () => ({ entries: host.providers }) } }),
   openExternalUrl: async (url: string) => {
@@ -142,6 +161,10 @@ export function resetHost() {
   host.settings = null;
   host.hosts = [];
   host.remoteWorkspaces.clear();
+  host.remoteProjects.clear();
+  host.remoteProviders.clear();
+  host.remoteCreated = [];
+  host.remoteAgents = [];
   host.toasts = [];
   host.opened = [];
   host.providers = [];

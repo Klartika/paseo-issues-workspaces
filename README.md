@@ -7,7 +7,7 @@ See [OVERVIEW.md](OVERVIEW.md) for how it finds issues, names branches, and dete
 ## Requirements
 
 - Paseo 0.11.2 or later, with plugins enabled on the daemon.
-- The GitHub CLI (`gh`) on the daemon host, signed in with `gh auth login`.
+- The GitHub CLI (`gh`) on each daemon host, signed in with `gh auth login`.
 - Your repositories added to Paseo as projects, with a github.com remote.
 
 ## Develop

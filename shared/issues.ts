@@ -77,6 +77,12 @@ export function effectivePreferences(values: Preferences): Preferences {
   };
 }
 
+/** `owner/repo` from a Paseo project key such as `remote:github.com/owner/repo`, else null. */
+export function parseProjectKey(key: string | null | undefined): string | null {
+  const m = key?.match(/^remote:github\.com\/([^/\s]+\/[^/\s]+)$/i);
+  return m ? m[1] : null;
+}
+
 const SLUG_LENGTH = 40;
 
 /** `<prefix><n>-<slug>`, the slug cut at a word boundary to at most 40 characters. */
@@ -190,13 +196,24 @@ export const projectsRpc = defineRpc({
 /** One page of open issues in one repository, newest first. */
 export const issuesPageRpc = defineRpc({
   name: "issues.page",
-  input: z.object({
-    projectId: z.string(),
-    /** GitHub's issue search syntax; `is:issue state:open` is implied. */
-    query: z.string().max(1000),
-    page: z.number().int().min(1),
-  }),
+  /** `projectId` for this host's projects; `repo` for a repository only another host has. */
+  input: z
+    .object({
+      projectId: z.string().optional(),
+      repo: z.string().optional(),
+      /** GitHub's issue search syntax; `is:issue state:open` is implied. */
+      query: z.string().max(1000),
+      page: z.number().int().min(1),
+    })
+    .refine((v) => Boolean(v.projectId) !== Boolean(v.repo), "Pass exactly one of projectId and repo"),
   output: z.object({ issues: z.array(issue), totalCount: z.number() }),
+});
+
+/** What creating a workspace on another host needs from GitHub. */
+export const issueDetailsRpc = defineRpc({
+  name: "issues.details",
+  input: z.object({ repo: z.string(), number: z.number() }),
+  output: z.object({ title: z.string(), state: z.string(), url: z.string(), defaultBranch: z.string() }),
 });
 
 /** `create` makes the workspace only; `agent` also starts an agent with the agent prompt. */

@@ -252,11 +252,17 @@ export async function projectList(paseo: PaseoApi) {
   return { repos: choices, skipped };
 }
 
-/** A later page of one repository's results, for the pager. `projectId` names one of this host's projects. */
+/** No local checkout: coverage for these issues is worked out from the other host's workspaces. */
+const NO_COVERAGE = { workspaces: [] as Workspace[], branches: [] as string[] };
+
+/**
+ * A later page of one repository's results, for the pager. `projectId` names one of this
+ * host's projects; `repo` a repository that only another host has.
+ */
 export async function issuesPage(
   paseo: PaseoApi,
   prefs: Preferences,
-  { projectId, query, page }: { projectId: string; query: string; page: number },
+  { projectId, repo, query, page }: { projectId?: string; repo?: string; query: string; page: number },
 ) {
   await findGh();
   const search = (slug: string) =>
@@ -264,11 +270,29 @@ export async function issuesPage(
       const text = errorText(error);
       throw new Error(SIGNED_OUT.test(text) ? "GitHub CLI is not signed in on this host. Run `gh auth login`." : text);
     });
+  if (repo) {
+    const result = await search(repo);
+    return { issues: toIssues(result.items, prefs.branchPrefix, NO_COVERAGE), totalCount: result.totalCount };
+  }
   const { repos } = await githubRepos(await listProjects(paseo));
-  const r = [...repos.values()].find((candidate) => candidate.projectIds.has(projectId));
+  const r = [...repos.values()].find((candidate) => candidate.projectIds.has(projectId ?? ""));
   if (!r) throw new Error("That project is no longer in Paseo, or no longer has a github.com remote");
   const [result, context] = await Promise.all([search(r.repo), coverageContext(paseo, r)]);
   return { issues: toIssues(result.items, prefs.branchPrefix, context), totalCount: result.totalCount };
+}
+
+/** Title, state, link and default branch for creating a workspace for issue `number` on another host. */
+export async function issueDetails({ repo, number: n }: { repo: string; number: number }) {
+  const [issue, info] = await Promise.all([
+    gh(["issue", "view", String(n), "--repo", repo, "--json", "title,state,url"]),
+    gh(["repo", "view", repo, "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"]),
+  ]).catch((error: unknown) => {
+    throw new Error(errorText(error));
+  });
+  const { title, state, url } = JSON.parse(issue.stdout) as { title: string; state: string; url: string };
+  const defaultBranch = info.stdout.trim();
+  if (!defaultBranch) throw new Error(`${repo} has no default branch`);
+  return { title, state, url, defaultBranch };
 }
 
 /** The configured `provider/model`, else the first ready provider with its default model. */

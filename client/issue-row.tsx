@@ -22,6 +22,7 @@ export function IssueRow({
   busy,
   onCreate,
   agentLabel,
+  workspaceServerId,
   menuOpen = false,
   onMenuOpenChange,
   theme,
@@ -39,6 +40,8 @@ export function IssueRow({
   onCreate: (action: CreateAction) => void;
   /** Names the agent "Create and start" starts. */
   agentLabel: string;
+  /** The host whose workspace covers this issue, when it is not the selected host. */
+  workspaceServerId?: string;
   /** This row's create menu is open; the row is raised so the dropdown paints over the rows below. */
   menuOpen?: boolean;
   onMenuOpenChange?: (open: boolean) => void;
@@ -113,7 +116,14 @@ export function IssueRow({
           menuOpen={menuOpen}
           onMenuOpenChange={onMenuOpenChange ?? (() => {})}
           onOpen={
-            issue.workspace && navigation ? () => navigation.openWorkspace({ workspaceId: issue.workspace!.id }) : undefined
+            issue.workspace && navigation
+              ? () =>
+                  navigation.openWorkspace(
+                    workspaceServerId
+                      ? { workspaceId: issue.workspace!.id, serverId: workspaceServerId }
+                      : { workspaceId: issue.workspace!.id },
+                  )
+              : undefined
           }
         />
       </View>

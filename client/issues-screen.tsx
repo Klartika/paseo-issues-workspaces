@@ -1,5 +1,5 @@
 import type { PluginScreenProps } from "@getpaseo/plugin/client";
-import { useRpc, useSettings } from "@getpaseo/plugin/client";
+import { getPaseoClient, useRpc, useSettings } from "@getpaseo/plugin/client";
 import { Icon, ScrollView, useToast } from "@getpaseo/plugin/client/react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useRef, useState } from "react";
@@ -9,18 +9,19 @@ import {
   DEFAULT_PREFERENCES,
   DEFAULT_QUERY,
   effectivePreferences,
+  issueDetailsRpc,
   preferences,
   projectsRpc,
   type CreateAction,
   type Density,
   type Issue,
   type Preferences,
-  type RepoProject,
 } from "../shared/issues";
 import { DensityToggle } from "./density-toggle";
-import { pickProject, showProjectSelector } from "./issue-list";
+import { pickProject, remoteOnlyProjects, showProjectSelector, type ProjectOption } from "./issue-list";
 import { OTHER_HOSTS_QUERY_KEY, useOtherHosts } from "./other-hosts";
 import { ProjectSelector } from "./project-selector";
+import { createOnHost } from "./remote-create";
 import { PAGE_QUERY_KEY, RepoTable } from "./repo-table";
 import { SearchBar } from "./search-bar";
 
@@ -35,6 +36,7 @@ export function IssuesScreen({
   host,
 }: PluginScreenProps) {
   const listProjects = useRpc(projectsRpc);
+  const issueDetails = useRpc(issueDetailsRpc);
   const createWorkspace = useRpc(createWorkspaceRpc);
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -56,7 +58,22 @@ export function IssuesScreen({
 
   const projects = useQuery({ queryKey: PROJECTS_QUERY_KEY, queryFn: () => listProjects({}) });
   const others = useOtherHosts(host.id);
-  const options = projects.data?.repos ?? [];
+  const options: ProjectOption[] = projects.data
+    ? [
+        ...projects.data.repos.map((r) => ({ ...r, key: r.projectId })),
+        ...remoteOnlyProjects(
+          projects.data.repos.map((r) => r.repo),
+          others.data?.projects ?? [],
+        ).map((p) => ({
+          key: `${p.serverId}/${p.projectId}`,
+          projectId: p.projectId,
+          projectName: p.name,
+          repo: p.repo,
+          otherProjects: [],
+          remote: p,
+        })),
+      ]
+    : [];
   const selected = pickProject(options, repoChoice ?? saved?.selectedRepo ?? "");
   const showTabs = showProjectSelector(options);
 
@@ -69,7 +86,7 @@ export function IssuesScreen({
     setPage(1);
     void savePreferences({ searchQuery: next });
   }
-  function selectProject(option: RepoProject) {
+  function selectProject(option: ProjectOption) {
     setRepoChoice(option.repo.toLowerCase());
     setPage(1);
     setCreateMenu(null);
@@ -77,14 +94,25 @@ export function IssuesScreen({
   }
 
   const create = useMutation({
-    mutationFn: ({ project, issue, action }: { project: RepoProject; issue: Issue; action: CreateAction }) =>
-      createWorkspace({ projectId: project.projectId, number: issue.number, action }),
+    mutationFn: async ({ project, issue, action }: { project: ProjectOption; issue: Issue; action: CreateAction }) => {
+      if (!project.remote) return createWorkspace({ projectId: project.projectId, number: issue.number, action });
+      const details = await issueDetails({ repo: project.repo, number: issue.number });
+      return createOnHost({
+        paseo: getPaseoClient(project.remote.serverId),
+        project: project.remote,
+        number: issue.number,
+        details,
+        action,
+        prefs,
+      });
+    },
     onMutate: ({ issue }) => setPending(issue.number),
-    onSuccess: (result, { issue }) => {
+    onSuccess: (result, { project, issue }) => {
+      const where = project.remote ? ` on ${project.remote.hostLabel}` : "";
       toast.show(
         result.agent
-          ? `Created workspace for #${issue.number} and started ${result.agent}`
-          : `Created workspace for #${issue.number}`,
+          ? `Created workspace for #${issue.number}${where} and started ${result.agent}`
+          : `Created workspace for #${issue.number}${where}`,
         { variant: "success" },
       );
     },
@@ -122,7 +150,7 @@ export function IssuesScreen({
       {showTabs ? (
         <ProjectSelector
           options={options}
-          selectedId={selected?.projectId ?? null}
+          selectedKey={selected?.key ?? null}
           onSelect={selectProject}
           theme={theme}
         />
@@ -180,7 +208,10 @@ export function IssuesScreen({
               pendingNumber={pending}
               busy={pending !== null}
               onCreate={(issue, action) => create.mutate({ project: selected, issue, action })}
-              agentLabel={prefs.agent || "the host's default agent"}
+              agentLabel={
+                prefs.agent ||
+                (selected.remote ? `${selected.remote.hostLabel}'s default agent` : "the host's default agent")
+              }
               createMenuFor={createMenu}
               onCreateMenu={setCreateMenu}
               headerControls={

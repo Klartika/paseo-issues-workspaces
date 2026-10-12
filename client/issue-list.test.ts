@@ -3,7 +3,10 @@ import {
   findRemoteWorkspaces,
   pageItems,
   pickProject,
+  remoteOnlyProjects,
   showProjectSelector,
+  withRemoteCoverage,
+  type RemoteProject,
   type RemoteWorkspace,
 } from "./issue-list";
 
@@ -92,5 +95,72 @@ describe("findRemoteWorkspaces", () => {
 
   it("handles no data yet", () => {
     expect(findRemoteWorkspaces(undefined, "octo/repo", 42, "issue/")).toEqual([]);
+  });
+});
+
+describe("remoteOnlyProjects", () => {
+  const project = (overrides: Partial<RemoteProject>): RemoteProject => ({
+    serverId: "srv_b",
+    hostLabel: "Build box",
+    projectId: "p",
+    name: "app",
+    root: "/srv/app",
+    repo: "octo/app",
+    ...overrides,
+  });
+
+  it("leaves out repositories this host already has, whatever their casing", () => {
+    expect(remoteOnlyProjects(["Octo/App"], [project({})])).toEqual([]);
+  });
+
+  it("keeps one project per repository, from the host listed first", () => {
+    const onZed = project({ serverId: "z", hostLabel: "Zed", projectId: "pz" });
+    const onAlpha = project({ serverId: "a", hostLabel: "Alpha", projectId: "pa" });
+    expect(remoteOnlyProjects([], [onZed, onAlpha])).toEqual([onAlpha]);
+  });
+
+  it("sorts the result by project name", () => {
+    const b = project({ name: "beta", repo: "octo/beta" });
+    const a = project({ name: "alpha", repo: "octo/alpha" });
+    expect(remoteOnlyProjects([], [b, a]).map((p) => p.name)).toEqual(["alpha", "beta"]);
+  });
+});
+
+describe("withRemoteCoverage", () => {
+  const issues = [
+    { number: 1, workspace: null },
+    { number: 2, workspace: null },
+    { number: 3, workspace: null },
+  ];
+  const ws = (overrides: Partial<RemoteWorkspace>): RemoteWorkspace => ({
+    serverId: "srv_b",
+    hostLabel: "Build box",
+    workspaceId: "w",
+    name: "x",
+    branch: "",
+    repo: "octo/app",
+    ...overrides,
+  });
+
+  it("marks issues covered by the owning host's workspaces", () => {
+    const result = withRemoteCoverage(
+      issues,
+      [ws({ workspaceId: "w1", name: "#1 One" }), ws({ workspaceId: "w2", branch: "issue/2-two" })],
+      "srv_b",
+      "Octo/App",
+      "issue/",
+    );
+    expect(result.map((i) => i.workspace)).toEqual([{ id: "w1", name: "#1 One" }, { id: "w2", name: "x" }, null]);
+  });
+
+  it("ignores workspaces on other hosts or other repositories", () => {
+    const result = withRemoteCoverage(
+      issues,
+      [ws({ serverId: "srv_c", name: "#1 One" }), ws({ repo: "octo/other", name: "#2 Two" })],
+      "srv_b",
+      "octo/app",
+      "issue/",
+    );
+    expect(result.every((i) => i.workspace === null)).toBe(true);
   });
 });

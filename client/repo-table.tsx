@@ -4,9 +4,9 @@ import { Icon } from "@getpaseo/plugin/client/react-native";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useMemo, type ReactNode } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
-import { issuesPageRpc, pageCountFor, type CreateAction, type Density, type Issue, type RepoProject } from "../shared/issues";
+import { issuesPageRpc, pageCountFor, type CreateAction, type Density, type Issue } from "../shared/issues";
 import { isDarkTheme, openIssueColor } from "./github-style";
-import { findRemoteWorkspaces, type RemoteWorkspace } from "./issue-list";
+import { findRemoteWorkspaces, withRemoteCoverage, type ProjectOption, type RemoteWorkspace } from "./issue-list";
 import { IssueRow } from "./issue-row";
 import { Pager } from "./pager";
 
@@ -38,13 +38,13 @@ export function RepoTable({
   layout,
   navigation,
 }: Pick<PluginScreenProps, "theme" | "layout" | "navigation"> & {
-  project: RepoProject;
+  project: ProjectOption;
   query: string;
   page: number;
   onPageChange: (page: number) => void;
   density: Density;
   branchPrefix: string;
-  /** Every other host's workspaces, linked from the issues they cover. */
+  /** Every other host's workspaces: links for this host's issues, coverage for another host's project. */
   otherHostWorkspaces: RemoteWorkspace[] | undefined;
   /** The issue number being created, if any. */
   pendingNumber: number | null;
@@ -59,15 +59,21 @@ export function RepoTable({
 }) {
   const fetchPage = useRpc(issuesPageRpc);
   const result = useQuery({
-    queryKey: [...PAGE_QUERY_KEY, project.projectId, query, page],
-    queryFn: () => fetchPage({ projectId: project.projectId, query, page }),
+    queryKey: [...PAGE_QUERY_KEY, project.key, query, page],
+    queryFn: () =>
+      fetchPage(project.remote ? { repo: project.repo, query, page } : { projectId: project.projectId, query, page }),
     // Keep the previous page on screen, dimmed, until the next one arrives.
     placeholderData: keepPreviousData,
     // GitHub allows 30 searches a minute; revisiting a page shouldn't spend one. Refresh still does.
     staleTime: 60_000,
   });
 
-  const issues = result.data?.issues ?? [];
+  const remote = project.remote;
+  const raw = result.data?.issues ?? [];
+  // Another host's project is covered by that host's workspaces; the server only knows this host's.
+  const issues = remote
+    ? withRemoteCoverage(raw, otherHostWorkspaces, remote.serverId, project.repo, branchPrefix)
+    : raw;
   const totalCount = result.data?.totalCount ?? 0;
   const stale = result.isPlaceholderData;
   const dark = isDarkTheme(theme);
@@ -94,6 +100,7 @@ export function RepoTable({
         borderTopRightRadius: 6,
       },
       summary: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8 },
+      repo: { color: theme.colors.foregroundMuted, fontSize: 13, fontWeight: "400" as const },
       count: { color: theme.colors.foreground, fontSize: 14, fontWeight: "600" as const },
       error: { color: theme.colors.statusDanger, paddingVertical: 12, paddingHorizontal: 16 },
       empty: { color: theme.colors.foregroundMuted, paddingVertical: 24, textAlign: "center" as const },
@@ -110,6 +117,7 @@ export function RepoTable({
           <View style={s.summary}>
             <Icon name="CircleDot" size={16} color={openIssueColor(dark)} />
             <Text style={s.count}>{formatCount(totalCount)} Open</Text>
+            {remote ? <Text style={s.repo}>on {remote.hostLabel}</Text> : null}
             {result.isFetching && result.data ? (
               <ActivityIndicator size="small" color={theme.colors.foregroundMuted} />
             ) : null}
@@ -122,7 +130,7 @@ export function RepoTable({
             <ActivityIndicator color={theme.colors.foregroundMuted} />
           </View>
         ) : null}
-        {result.isSuccess && !issues.length ? <Text style={s.empty}>No results matched your search.</Text> : null}
+        {result.isSuccess && !raw.length ? <Text style={s.empty}>No results matched your search.</Text> : null}
         <View style={[stale ? { opacity: 0.5 } : null, createMenuFor !== null ? { zIndex: 6 } : null]}>
           {createMenuFor !== null ? (
             // Covers the rows, under the row whose menu is open.
@@ -138,13 +146,16 @@ export function RepoTable({
               issue={issue}
               density={density}
               elsewhere={
-                issue.workspace ? [] : findRemoteWorkspaces(otherHostWorkspaces, project.repo, issue.number, branchPrefix)
+                remote || issue.workspace
+                  ? []
+                  : findRemoteWorkspaces(otherHostWorkspaces, project.repo, issue.number, branchPrefix)
               }
               first={index === 0}
               pending={pendingNumber === issue.number}
               busy={busy}
               onCreate={(action) => onCreate(issue, action)}
               agentLabel={agentLabel}
+              workspaceServerId={remote?.serverId}
               menuOpen={createMenuFor === issue.number}
               onMenuOpenChange={(open) => onCreateMenu?.(open ? issue.number : null)}
               theme={theme}

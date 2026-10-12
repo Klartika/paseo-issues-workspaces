@@ -15,6 +15,17 @@ export function pageItems(page: number, pageCount: number): (number | "gap")[] {
   return items;
 }
 
+/** A project the picker offers: one of this host's, or one only `remote`'s host has. */
+export type ProjectOption = {
+  /** Unique across hosts. */
+  key: string;
+  projectId: string;
+  projectName: string;
+  repo: string;
+  otherProjects: string[];
+  remote?: RemoteProject;
+};
+
 /** The picker appears only when there is a choice to make. */
 export function showProjectSelector(options: readonly unknown[]): boolean {
   return options.length > 1;
@@ -46,4 +57,47 @@ export function findRemoteWorkspaces(
   const match = issueMatcher(n, branchPrefix);
   const slug = repo.toLowerCase();
   return workspaces.filter((w) => w.repo === slug && (match.title(w.name) || match.branch(w.branch)));
+}
+
+/** A GitHub project on another host. */
+export type RemoteProject = {
+  serverId: string;
+  hostLabel: string;
+  projectId: string;
+  name: string;
+  root: string;
+  /** `owner/repo` as GitHub spells it. */
+  repo: string;
+};
+
+/**
+ * Projects to show from other hosts: one per repository this host does not have, from the
+ * host listed first by label, then project name.
+ */
+export function remoteOnlyProjects(localRepos: Iterable<string>, projects: readonly RemoteProject[]): RemoteProject[] {
+  const taken = new Set([...localRepos].map((r) => r.toLowerCase()));
+  const sorted = [...projects].sort((a, b) => a.hostLabel.localeCompare(b.hostLabel) || a.name.localeCompare(b.name));
+  const out: RemoteProject[] = [];
+  for (const p of sorted) {
+    const key = p.repo.toLowerCase();
+    if (taken.has(key)) continue;
+    taken.add(key);
+    out.push(p);
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Marks issues covered by a workspace on `serverId`, the host that owns the project. */
+export function withRemoteCoverage<T extends { number: number; workspace: { id: string; name: string } | null }>(
+  issues: readonly T[],
+  workspaces: readonly RemoteWorkspace[] | undefined,
+  serverId: string,
+  repo: string,
+  branchPrefix: string,
+): T[] {
+  const own = (workspaces ?? []).filter((w) => w.serverId === serverId);
+  return issues.map((issue) => {
+    const [ws] = findRemoteWorkspaces(own, repo, issue.number, branchPrefix);
+    return ws ? { ...issue, workspace: { id: ws.workspaceId, name: ws.name } } : issue;
+  });
 }

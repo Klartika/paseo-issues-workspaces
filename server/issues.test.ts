@@ -443,16 +443,15 @@ describe("issuesPage: failures", () => {
     fake.ghInstalled = false;
     const { api } = fakePaseo({ projects: [] });
 
-    await expect(mod.issuesPage(api, prefs(), { projectId: "p1", query: "", page: 1 })).rejects.toThrow(
+    await expect(mod.issuesPage(api, prefs(), { repo: "octo/repo", query: "", page: 1 })).rejects.toThrow(
       "GitHub CLI (gh) is not installed on this host",
     );
   });
 
   it("looks for gh in Homebrew's directories, since the daemon may lack a login PATH", async () => {
-    const dir = await gitRepo({ origin: "git@github.com:octo/repo.git" });
     fake.gh = issuesByRepo({ "octo/repo": [] });
-    const { api } = fakePaseo({ projects: [{ id: "p1", name: "repo", root: dir }] });
-    await mod.issuesPage(api, prefs(), { projectId: "p1", query: "", page: 1 });
+    const { api } = fakePaseo({ projects: [] });
+    await mod.issuesPage(api, prefs(), { repo: "octo/repo", query: "", page: 1 });
     expect(fake.calls[0]).toEqual({ cmd: "/opt/homebrew/bin/gh", args: ["--version"] });
   });
 
@@ -721,5 +720,40 @@ describe("createWorkspace: create and start an agent", () => {
 
     expect(created[0]).not.toHaveProperty("firstAgentContext");
     expect(agents).toEqual([]);
+  });
+});
+
+// --- Repositories only other hosts have ---------------------------------------------------------
+
+describe("issuesPage for another host's repository", () => {
+  it("fetches the page by repository, leaving coverage to the client", async () => {
+    fake.gh = issuesByRepo({ "octo/app": Array.from({ length: 30 }, (_, i) => issue(30 - i)) });
+    const { api } = fakePaseo({ projects: [] });
+
+    const result = await mod.issuesPage(api, prefs(), { repo: "octo/app", query: "", page: 2 });
+
+    expect(searches()).toEqual([expect.objectContaining({ q: "repo:octo/app is:issue state:open", page: "2" })]);
+    expect(result).toMatchObject({ totalCount: 30 });
+    expect(result.issues.map((i) => i.number)).toEqual([5, 4, 3, 2, 1]);
+    expect(result.issues[0].workspace).toBeNull();
+  });
+});
+
+describe("issueDetails", () => {
+  it("returns what creating on another host needs", async () => {
+    fake.gh = creationGh({ title: "Crash", defaultBranch: "develop" });
+
+    expect(await mod.issueDetails({ repo: "octo/repo", number: 4 })).toEqual({
+      title: "Crash",
+      state: "OPEN",
+      url: "https://github.com/octo/repo/issues/4",
+      defaultBranch: "develop",
+    });
+    expect(ghCalls("issue view")[0].args).toEqual(["issue", "view", "4", "--repo", "octo/repo", "--json", "title,state,url"]);
+  });
+
+  it("passes on GitHub's error", async () => {
+    fake.gh = () => ghError("GraphQL: Could not resolve to an issue or pull request with the number of 999.");
+    await expect(mod.issueDetails({ repo: "octo/repo", number: 999 })).rejects.toThrow("Could not resolve to an issue");
   });
 });

@@ -14,6 +14,7 @@ import {
   PAGE_SIZE,
   pageCountFor,
   parseGitHubRemote,
+  parseProjectKey,
   preferences,
   renderPrompt,
 } from "./issues";
@@ -186,6 +187,24 @@ describe("pageCountFor", () => {
     expect(MAX_RESULTS).toBe(1000);
     expect(pageCountFor(1000)).toBe(40);
     expect(pageCountFor(5432)).toBe(40);
+  });
+});
+
+describe("parseProjectKey", () => {
+  it("reads the repository from a GitHub project key", () => {
+    expect(parseProjectKey("remote:github.com/acme-labs/widgets")).toBe("acme-labs/widgets");
+  });
+
+  it.each([
+    "host:srv_1:/Users/me/code/app",
+    "remote:gitlab.com/octo/repo",
+    "remote:github.com/octo",
+    "remote:github.com/octo/repo/extra",
+    "",
+    null,
+    undefined,
+  ])("rejects %j", (key) => {
+    expect(parseProjectKey(key)).toBeNull();
   });
 });
 

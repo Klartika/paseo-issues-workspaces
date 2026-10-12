@@ -14,11 +14,15 @@ The plugin looks at every git project on the host and reads its remotes. A proje
 
 A new workspace is a worktree titled `#<number> <issue title>`, on a new branch `issue/<number>-<slug>` taken from a freshly fetched copy of the repository's default branch. **Create workspace** starts no agent. **Create and start an agent** also starts the chosen agent in the new worktree and sends it the agent prompt as its first message.
 
-An issue counts as covered when a workspace in any project on the same repository has a title starting with `#<number>`, or a branch that starts with the branch prefix and the number, or contains `<number>-` after a slash. When a local branch exists for an issue but no workspace does, for example after archiving one, the plugin shows the branch and does not create a second one. An issue that already has a workspace on another online host shows a link to it.
+An issue counts as covered when a workspace in any project on the same repository has a title starting with `#<number>`, or a branch that starts with the branch prefix and the number, or contains `<number>-` after a slash. When a local branch exists for an issue but no workspace does, for example after archiving one, the plugin shows the branch and does not create a second one.
+
+## Other hosts
+
+With several hosts connected, the project tabs also offer GitHub projects that only another online host has, labelled with that host's name; their issues are searched with this host's `gh`, and the other host needs neither this plugin nor `gh`. Creating a workspace for one of those issues creates it on that host. This host cannot run git there, so the worktree branches from that host's last-fetched copy of the default branch on `origin`, and leftover local branches there are not detected. **Create and start** starts the configured agent when that host has it ready, otherwise that host's default. An issue in this host's projects that already has a workspace on another online host shows a link to it.
 
 ## Setup
 
-The daemon host needs the GitHub CLI (`gh`) installed and signed in with `gh auth login`, using an account that can read the repositories. Requires Paseo 0.11.2 or later.
+Each daemon host needs the GitHub CLI (`gh`) installed and signed in with `gh auth login`, using an account that can read the repositories. Requires Paseo 0.11.2 or later.
 
 ## Settings
 

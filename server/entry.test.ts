@@ -3,9 +3,10 @@ import { DEFAULT_PREFERENCES, preferences } from "../shared/issues";
 
 // The entry wires settings into the handlers; the handlers themselves are tested in issues.test.ts.
 const projectList = vi.fn(async (..._args: unknown[]) => ({ ok: "projects" }));
+const issueDetails = vi.fn(async (..._args: unknown[]) => ({ ok: "details" }));
 const issuesPage = vi.fn(async (..._args: unknown[]) => ({ ok: "page" }));
 const createWorkspace = vi.fn(async (..._args: unknown[]) => ({ ok: "create" }));
-vi.mock("./issues", () => ({ projectList, issuesPage, createWorkspace }));
+vi.mock("./issues", () => ({ projectList, issuesPage, issueDetails, createWorkspace }));
 
 const { default: contribute } = await import("../index.server");
 
@@ -39,18 +40,21 @@ describe("index.server", () => {
     expect(registered).toEqual([preferences]);
     expect([...handlers.keys()].sort()).toEqual([
       "issues.create-workspace",
+      "issues.details",
       "issues.page",
       "issues.projects",
     ]);
   });
 
-  it("lists projects without settings", async () => {
+  it("lists projects without settings, and passes details requests through", async () => {
     const { server, handlers } = fakeServer({ status: "ready", revision: "1", values: DEFAULT_PREFERENCES });
     contribute(server);
 
     await handlers.get("issues.projects")!({}, { paseo });
+    await handlers.get("issues.details")!({ repo: "o/r", number: 3 }, { paseo });
 
     expect(projectList).toHaveBeenCalledWith(paseo);
+    expect(issueDetails).toHaveBeenCalledWith({ repo: "o/r", number: 3 });
   });
 
   it("hands a page request to issuesPage", async () => {
@@ -80,8 +84,8 @@ describe("index.server", () => {
     const { server, handlers } = fakeServer({ status: "invalid", revision: "1", error: "bad json" });
     contribute(server);
 
-    await handlers.get("issues.page")!({ projectId: "p", query: "", page: 1 }, { paseo });
+    await handlers.get("issues.page")!({ repo: "o/r", query: "", page: 1 }, { paseo });
 
-    expect(issuesPage).toHaveBeenCalledWith(paseo, DEFAULT_PREFERENCES, { projectId: "p", query: "", page: 1 });
+    expect(issuesPage).toHaveBeenCalledWith(paseo, DEFAULT_PREFERENCES, { repo: "o/r", query: "", page: 1 });
   });
 });

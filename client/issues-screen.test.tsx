@@ -69,16 +69,16 @@ function serveProjects(repos: RepoProject[], skipped: { projectName: string; rea
   host.rpcs.set("issues.projects", async () => ({ repos, skipped }));
 }
 
-type PageRequest = { projectId: string; query: string; page: number };
+type PageRequest = { projectId?: string; repo?: string; query: string; page: number };
 
-/** Fakes issues.page from every match per project id, 25 to a page, recording requests. */
+/** Fakes issues.page from every match per project id or repository, 25 to a page, recording requests. */
 function servePages(table: Record<string, Issue[] | Error>) {
   const requests: PageRequest[] = [];
   host.rpcs.set("issues.page", async (input) => {
     const request = input as PageRequest;
     requests.push(request);
-    const all = table[request.projectId];
-    if (all === undefined) throw new Error(`no fixture for ${request.projectId}`);
+    const all = table[request.projectId ?? request.repo ?? ""];
+    if (all === undefined) throw new Error(`no fixture for ${request.projectId ?? request.repo}`);
     if (all instanceof Error) throw all;
     return { issues: all.slice((request.page - 1) * 25, request.page * 25), totalCount: all.length };
   });
@@ -124,6 +124,7 @@ function renderScreen({ compact = false, light = false }: { compact?: boolean; l
 }
 
 const prefs = (overrides: Partial<Preferences> = {}): Preferences => ({ ...DEFAULT_PREFERENCES, ...overrides });
+const settle = () => new Promise((r) => setTimeout(r, 20));
 const search = (text: string) => {
   const box = screen.getByLabelText(/Search issues/);
   fireEvent.change(box, { target: { value: text } });
@@ -698,5 +699,139 @@ describe("issues screen: creating a workspace", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Create workspace for issue 7" }));
 
     await waitFor(() => expect(requests.length).toBe(2));
+  });
+});
+
+// --- Other hosts --------------------------------------------------------------------------------
+
+describe("issues screen: projects on other hosts", () => {
+  const remoteProject = (repo: string) => ({
+    projectId: `rp-${repo}`,
+    projectKey: `remote:github.com/${repo}`,
+    projectDisplayName: repo.split("/")[1],
+    projectCustomName: null,
+    projectRootPath: `/srv/${repo.split("/")[1]}`,
+    projectKind: "git",
+  });
+
+  /** One other online host, "Build box", with the given projects and workspaces. */
+  function buildBox(projects: unknown[], workspaces: unknown[] = []) {
+    host.hosts = [
+      { serverId: "srv_here", label: "Laptop", status: "online" },
+      { serverId: "srv_box", label: "Build box", status: "online" },
+    ];
+    host.remoteProjects.set("srv_box", projects);
+    host.remoteWorkspaces.set("srv_box", workspaces);
+  }
+
+  it("offers a project only another host has, labelled with that host", async () => {
+    readySettings(prefs());
+    serveProjects([project("octo/here")]);
+    servePages({ "p-octo/here": [issue(1)], "octo/there": [issue(9)] });
+    buildBox([remoteProject("octo/there")]);
+    renderScreen();
+
+    expect(await screen.findByRole("tab", { name: "there (octo/there) on Build box" })).toBeTruthy();
+  });
+
+  it("shows that project's issues, searched by repository, labelled with its host", async () => {
+    readySettings(prefs({ selectedRepo: "octo/there" }));
+    serveProjects([project("octo/here")]);
+    const requests = servePages({ "p-octo/here": [], "octo/there": [issue(9, { title: "Remote issue" })] });
+    buildBox([remoteProject("octo/there")]);
+    renderScreen();
+
+    expect(await screen.findByText("Remote issue")).toBeTruthy();
+    expect(screen.getByText("on Build box")).toBeTruthy();
+    expect(requests.at(-1)).toEqual({ repo: "octo/there", query: "assignee:@me", page: 1 });
+  });
+
+  it("does not offer a repository this host also has", async () => {
+    readySettings(prefs());
+    serveProjects([project("octo/shared")]);
+    servePages({ "p-octo/shared": [issue(1)] });
+    buildBox([remoteProject("Octo/Shared")]);
+    renderScreen();
+
+    await screen.findByText("Issue 1");
+    await settle();
+    expect(screen.queryAllByRole("tab")).toEqual([]);
+  });
+
+  it("creates the workspace on the host that has the project", async () => {
+    readySettings(prefs({ selectedRepo: "octo/there" }));
+    serveProjects([project("octo/here")]);
+    servePages({ "p-octo/here": [], "octo/there": [issue(9, { title: "Remote issue" })] });
+    buildBox([remoteProject("octo/there")]);
+    const localCreates = serveCreate();
+    host.rpcs.set("issues.details", async () => ({
+      title: "Remote issue",
+      state: "OPEN",
+      url: "https://github.com/octo/there/issues/9",
+      defaultBranch: "main",
+    }));
+    renderScreen();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Create workspace for issue 9" }));
+
+    await waitFor(() => expect(host.remoteCreated).toHaveLength(1));
+    expect(host.remoteCreated[0]).toMatchObject({
+      serverId: "srv_box",
+      options: {
+        title: "#9 Remote issue",
+        source: { cwd: "/srv/there", branchName: "issue/9-remote-issue", baseBranch: "origin/main" },
+      },
+    });
+    expect(localCreates).toEqual([]);
+    await waitFor(() =>
+      expect(host.toasts).toContainEqual({ message: "Created workspace for #9 on Build box", variant: "success" }),
+    );
+  });
+
+  it("names the other host's default agent in the fix option", async () => {
+    readySettings(prefs({ selectedRepo: "octo/there" }));
+    serveProjects([project("octo/here")]);
+    servePages({ "p-octo/here": [], "octo/there": [issue(9)] });
+    buildBox([remoteProject("octo/there")]);
+    renderScreen();
+
+    fireEvent.click(await screen.findByRole("button", { name: "More ways to create a workspace for issue 9" }));
+    expect(within(screen.getByRole("menu")).getByText(/Also starts Build box's default agent/)).toBeTruthy();
+  });
+
+  it("opens the other host's workspace for a covered issue", async () => {
+    readySettings(prefs({ selectedRepo: "octo/there" }));
+    serveProjects([project("octo/here")]);
+    servePages({ "p-octo/here": [], "octo/there": [issue(9)] });
+    buildBox(
+      [remoteProject("octo/there")],
+      [
+        {
+          id: "wks_9",
+          projectId: "rp",
+          title: "#9 Remote",
+          name: "x",
+          gitRuntime: { currentBranch: "", remoteUrl: "git@github.com:octo/there.git" },
+        },
+      ],
+    );
+    renderScreen();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open workspace for issue 9" }));
+
+    expect(navigation.openWorkspace).toHaveBeenCalledWith({ workspaceId: "wks_9", serverId: "srv_box" });
+  });
+
+  it("ignores offline hosts", async () => {
+    readySettings(prefs());
+    serveProjects([project("octo/here")]);
+    servePages({ "p-octo/here": [issue(1)] });
+    buildBox([remoteProject("octo/there")]);
+    host.hosts[1].status = "offline";
+    renderScreen();
+
+    await screen.findByText("Issue 1");
+    await settle();
+    expect(screen.queryAllByRole("tab")).toEqual([]);
   });
 });
