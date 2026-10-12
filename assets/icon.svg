@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+  <!-- Issues Workspaces: a claw hammer over an open-end wrench, crossed halfway down the handles.
+       The wrench is cut back around the hammer's handle so the tools stay apart at 14px.
+       Source of client/tools-icon-data.ts (96px, black) and assets/icon.png (white on the tile). -->
+  <mask id="cut" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24"><rect width="24" height="24" fill="white"/><g transform="translate(12 14.4) rotate(45)"><path d="M -1.4 -8.25 1.4 -8.25 1.4 8.45 A 1.4 1.4 0 0 1 -1.4 8.45 Z" fill="black" stroke="black" stroke-width="2" stroke-linejoin="round"/></g></mask><g mask="url(#cut)"><g transform="translate(12 14.4) rotate(-45)" fill="currentColor"><path d="M 1.55 -12.66 A 3.75 3.75 0 1 1 -1.55 -12.66 L -1.55 -8.9 1.55 -8.9 Z"/><path d="M -1.4 -6.1 1.4 -6.1 1.4 8.45 A 1.4 1.4 0 0 1 -1.4 8.45 Z"/></g></g><g transform="translate(12 14.4) rotate(45)" fill="currentColor"><path d="M -4.1 -11.25 L 1.4 -11.25 C 3.04 -11.25 4.99 -9.7 5.3 -6.95 C 4.33 -7.51 2.69 -8.45 1.4 -8.35 L 1.4 -7.25 -4.1 -7.25 Q -4.8 -7.25 -4.8 -7.95 L -4.8 -10.55 Q -4.8 -11.25 -4.1 -11.25 Z"/><path d="M -1.4 -8.25 1.4 -8.25 1.4 8.45 A 1.4 1.4 0 0 1 -1.4 8.45 Z"/></g>
+</svg>
