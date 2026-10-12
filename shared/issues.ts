@@ -7,6 +7,17 @@ export const DEFAULT_QUERY = "assignee:@me";
 export const DENSITIES = ["comfortable", "compact"] as const;
 export type Density = (typeof DENSITIES)[number];
 
+export const DEFAULT_AGENT_PROMPT = `Work on GitHub issue #{number} in {repo}: {title}
+{url}
+
+Read the issue and its comments with \`gh issue view {number} --repo {repo} --comments\`. If it reports a bug, find the root cause and fix it with tests. Otherwise do what it asks, with tests where they apply. Summarize what you changed.`;
+
+export const PROMPT_PLACEHOLDERS = ["number", "title", "url", "repo"] as const;
+
+export function renderPrompt(template: string, values: Record<(typeof PROMPT_PLACEHOLDERS)[number], string>) {
+  return template.replace(/\{(number|title|url|repo)\}/g, (_match, key: keyof typeof values) => values[key]);
+}
+
 export const preferences = defineSettings({
   id: "preferences",
   scope: "host",
@@ -19,6 +30,10 @@ export const preferences = defineSettings({
     /** The last search, in GitHub's issue search syntax. */
     searchQuery: z.string().default(DEFAULT_QUERY),
     density: z.enum(DENSITIES).default("comfortable"),
+    /** `provider/model` for "Create and start". Empty uses the first ready provider and its default model. */
+    agent: z.string().default(""),
+    /** The first message "Create and start" sends the agent. */
+    agentPrompt: z.string().default(DEFAULT_AGENT_PROMPT),
   }),
 });
 export type Preferences = z.infer<typeof preferences.schema>;
@@ -35,6 +50,11 @@ export function branchPrefixError(prefix: string): string | null {
   return null;
 }
 
+/** The prompt to use: the saved one, or the default when it is empty. */
+export function effectiveAgentPrompt(saved: string): string {
+  return saved.trim() ? saved : DEFAULT_AGENT_PROMPT;
+}
+
 /** Settings that fail validation fall back to defaults rather than breaking the screen. */
 export function effectivePreferences(values: Preferences): Preferences {
   return {
@@ -42,6 +62,8 @@ export function effectivePreferences(values: Preferences): Preferences {
     selectedRepo: values.selectedRepo,
     searchQuery: values.searchQuery,
     density: values.density,
+    agent: values.agent,
+    agentPrompt: effectiveAgentPrompt(values.agentPrompt),
   };
 }
 
@@ -56,6 +78,39 @@ export function branchName(prefix: string, n: number, title: string): string {
   }
   slug = slug.replace(/-+$/, "");
   return slug ? `${prefix}${n}-${slug}` : `${prefix}${n}`;
+}
+
+/** The parts of a provider snapshot entry that choosing an agent needs. */
+export type ProviderEntry = {
+  provider: string;
+  status: string;
+  enabled?: boolean;
+  models?: { id: string; isDefault?: boolean; isSelectable?: boolean }[];
+};
+
+/** The first ready provider with its default model, as `provider/model`; null when none is ready. */
+export function defaultAgent(entries: readonly ProviderEntry[]): string | null {
+  for (const p of entries) {
+    if (p.enabled === false || p.status !== "ready") continue;
+    const models = (p.models ?? []).filter((m) => m.isSelectable !== false);
+    const model = models.find((m) => m.isDefault) ?? models[0];
+    if (model) return `${p.provider}/${model.id}`;
+  }
+  return null;
+}
+
+/** Whether `agent` (`provider/model`) is offered by a ready provider in `entries`. */
+export function agentAvailable(entries: readonly ProviderEntry[], agent: string): boolean {
+  const at = agent.indexOf("/");
+  const provider = agent.slice(0, at);
+  const model = agent.slice(at + 1);
+  return entries.some(
+    (p) =>
+      p.provider === provider &&
+      p.enabled !== false &&
+      p.status === "ready" &&
+      (p.models ?? []).some((m) => m.id === model && m.isSelectable !== false),
+  );
 }
 
 /** `owner/repo` for a github.com remote URL, else null. */
@@ -133,8 +188,19 @@ export const issuesRpc = defineRpc({
   output: z.object({ issues: z.array(issue) }),
 });
 
+/** `create` makes the workspace only; `agent` also starts an agent with the agent prompt. */
+export const CREATE_ACTIONS = ["create", "agent"] as const;
+export type CreateAction = (typeof CREATE_ACTIONS)[number];
+
 export const createWorkspaceRpc = defineRpc({
   name: "issues.create-workspace",
-  input: z.object({ projectId: z.string(), number: z.number() }),
-  output: z.object({ workspaceId: z.string(), branch: z.string() }),
+  input: z.object({ projectId: z.string(), number: z.number(), action: z.enum(CREATE_ACTIONS) }),
+  output: z.object({
+    workspaceId: z.string(),
+    branch: z.string(),
+    /** Set for `agent`. */
+    agentId: z.string().nullable(),
+    /** The `provider/model` the agent runs, for `agent`. */
+    agent: z.string().nullable(),
+  }),
 });

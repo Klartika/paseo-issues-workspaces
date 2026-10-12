@@ -2,8 +2,8 @@ import type { PluginScreenProps } from "@getpaseo/plugin/client";
 import { useRpc } from "@getpaseo/plugin/client";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
-import { ActivityIndicator, Text, View } from "react-native";
-import { issuesRpc, type Density, type Issue, type RepoProject } from "../shared/issues";
+import { ActivityIndicator, Pressable, Text, View } from "react-native";
+import { issuesRpc, type CreateAction, type Density, type Issue, type RepoProject } from "../shared/issues";
 import { findRemoteWorkspaces, type RemoteWorkspace } from "./issue-list";
 import { IssueRow } from "./issue-row";
 
@@ -21,6 +21,9 @@ export function RepoTable({
   pendingNumber,
   busy,
   onCreate,
+  agentLabel,
+  createMenuFor = null,
+  onCreateMenu,
   theme,
   layout,
   navigation,
@@ -34,7 +37,11 @@ export function RepoTable({
   /** The issue number being created, if any. */
   pendingNumber: number | null;
   busy: boolean;
-  onCreate: (issue: Issue) => void;
+  onCreate: (issue: Issue, action: CreateAction) => void;
+  agentLabel: string;
+  /** The issue whose create menu is open. */
+  createMenuFor?: number | null;
+  onCreateMenu?: (issue: number | null) => void;
 }) {
   const fetchIssues = useRpc(issuesRpc);
   const result = useQuery({
@@ -68,23 +75,36 @@ export function RepoTable({
         </View>
       ) : null}
       {result.isSuccess && !issues.length ? <Text style={s.empty}>No results matched your search.</Text> : null}
-      {issues.map((issue, index) => (
-        <IssueRow
-          key={issue.number}
-          issue={issue}
-          density={density}
-          elsewhere={
-            issue.workspace ? [] : findRemoteWorkspaces(otherHostWorkspaces, project.repo, issue.number, branchPrefix)
-          }
-          first={index === 0}
-          pending={pendingNumber === issue.number}
-          busy={busy}
-          onCreate={() => onCreate(issue)}
-          theme={theme}
-          layout={layout}
-          navigation={navigation}
-        />
-      ))}
+      <View style={createMenuFor !== null ? { zIndex: 6 } : null}>
+        {createMenuFor !== null ? (
+          // Covers the rows, under the row whose menu is open.
+          <Pressable
+            accessibilityLabel="Close menu"
+            onPress={() => onCreateMenu?.(null)}
+            style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 5 }}
+          />
+        ) : null}
+        {issues.map((issue, index) => (
+          <IssueRow
+            key={issue.number}
+            issue={issue}
+            density={density}
+            elsewhere={
+              issue.workspace ? [] : findRemoteWorkspaces(otherHostWorkspaces, project.repo, issue.number, branchPrefix)
+            }
+            first={index === 0}
+            pending={pendingNumber === issue.number}
+            busy={busy}
+            onCreate={(action) => onCreate(issue, action)}
+            agentLabel={agentLabel}
+            menuOpen={createMenuFor === issue.number}
+            onMenuOpenChange={(open) => onCreateMenu?.(open ? issue.number : null)}
+            theme={theme}
+            layout={layout}
+            navigation={navigation}
+          />
+        ))}
+      </View>
     </View>
   );
 }

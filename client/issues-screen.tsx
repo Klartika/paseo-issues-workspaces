@@ -11,6 +11,7 @@ import {
   effectivePreferences,
   preferences,
   projectsRpc,
+  type CreateAction,
   type Density,
   type Issue,
   type Preferences,
@@ -38,6 +39,8 @@ export function IssuesScreen({
   const queryClient = useQueryClient();
   const toast = useToast();
   const [pending, setPending] = useState<number | null>(null);
+  // The issue whose create menu is open, if any.
+  const [createMenu, setCreateMenu] = useState<number | null>(null);
 
   const settings = useSettings(preferences);
   const saved = settings.status === "ready" ? settings.values : null;
@@ -65,15 +68,21 @@ export function IssuesScreen({
   }
   function selectProject(option: RepoProject) {
     setRepoChoice(option.repo.toLowerCase());
+    setCreateMenu(null);
     void savePreferences({ selectedRepo: option.repo.toLowerCase() });
   }
 
   const create = useMutation({
-    mutationFn: ({ project, issue }: { project: RepoProject; issue: Issue }) =>
-      createWorkspace({ projectId: project.projectId, number: issue.number }),
+    mutationFn: ({ project, issue, action }: { project: RepoProject; issue: Issue; action: CreateAction }) =>
+      createWorkspace({ projectId: project.projectId, number: issue.number, action }),
     onMutate: ({ issue }) => setPending(issue.number),
-    onSuccess: (_result, { issue }) => {
-      toast.show(`Created workspace for #${issue.number}`, { variant: "success" });
+    onSuccess: (result, { issue }) => {
+      toast.show(
+        result.agent
+          ? `Created workspace for #${issue.number} and started ${result.agent}`
+          : `Created workspace for #${issue.number}`,
+        { variant: "success" },
+      );
     },
     onError: (error, { issue }) => {
       toast.show(`#${issue.number}: ${message(error)}`, { variant: "error" });
@@ -94,6 +103,8 @@ export function IssuesScreen({
       muted: { color: theme.colors.foregroundMuted, fontSize: 13 },
       error: { color: theme.colors.statusDanger },
       iconButton: { padding: 8, borderRadius: 6 },
+      // Closes an open create menu when anything outside it is pressed.
+      backdrop: { position: "absolute" as const, top: 0, left: 0, right: 0, bottom: 0, zIndex: 5 },
     };
   }, [theme, layout.compact]);
 
@@ -101,6 +112,9 @@ export function IssuesScreen({
 
   return (
     <ScrollView style={s.screen} contentContainerStyle={s.content}>
+      {createMenu !== null ? (
+        <Pressable accessibilityLabel="Close menu" onPress={() => setCreateMenu(null)} style={s.backdrop} />
+      ) : null}
       {showTabs ? (
         <ProjectSelector
           options={options}
@@ -151,19 +165,27 @@ export function IssuesScreen({
       ) : null}
 
       {selected ? (
-        <RepoTable
-          project={selected}
-          query={query}
-          density={density}
-          branchPrefix={prefs.branchPrefix}
-          otherHostWorkspaces={others.data?.workspaces}
-          pendingNumber={pending}
-          busy={pending !== null}
-          onCreate={(issue) => create.mutate({ project: selected, issue })}
-          theme={theme}
-          layout={layout}
-          navigation={navigation}
-        />
+        <>
+          {/* Above the screen's dismiss layer, so an issue's create menu can be pressed. */}
+          <View style={{ zIndex: 6 }}>
+            <RepoTable
+              project={selected}
+              query={query}
+              density={density}
+              branchPrefix={prefs.branchPrefix}
+              otherHostWorkspaces={others.data?.workspaces}
+              pendingNumber={pending}
+              busy={pending !== null}
+              onCreate={(issue, action) => create.mutate({ project: selected, issue, action })}
+              agentLabel={prefs.agent || "the host's default agent"}
+              createMenuFor={createMenu}
+              onCreateMenu={setCreateMenu}
+              theme={theme}
+              layout={layout}
+              navigation={navigation}
+            />
+          </View>
+        </>
       ) : null}
 
     </ScrollView>

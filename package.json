@@ -1,7 +1,7 @@
 {
   "name": "paseo-issues-workspaces",
   "version": "0.1.0",
-  "description": "Paseo plugin: browse a project's open GitHub issues and create a worktree workspace for one.",
+  "description": "Paseo plugin: browse a project's open GitHub issues and create a worktree workspace for one, optionally with an agent working on it.",
   "keywords": [
     "paseo",
     "paseo-plugin",

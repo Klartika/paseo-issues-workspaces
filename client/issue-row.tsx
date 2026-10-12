@@ -1,9 +1,9 @@
 import type { PluginScreenProps } from "@getpaseo/plugin/client";
 import { openExternalUrl } from "@getpaseo/plugin/client";
 import { Icon } from "@getpaseo/plugin/client/react-native";
-import { useMemo } from "react";
-import { ActivityIndicator, Pressable, Text, View } from "react-native";
-import type { Density, Issue } from "../shared/issues";
+import { useMemo, useState } from "react";
+import { ActivityIndicator, Pressable, Text, View, type Role } from "react-native";
+import type { CreateAction, Density, Issue } from "../shared/issues";
 import { isDarkTheme, labelColors, openIssueColor, timeAgo } from "./github-style";
 import type { RemoteWorkspace } from "./issue-list";
 
@@ -21,6 +21,9 @@ export function IssueRow({
   pending,
   busy,
   onCreate,
+  agentLabel,
+  menuOpen = false,
+  onMenuOpenChange,
   theme,
   layout,
   navigation,
@@ -33,7 +36,12 @@ export function IssueRow({
   first: boolean;
   pending: boolean;
   busy: boolean;
-  onCreate: () => void;
+  onCreate: (action: CreateAction) => void;
+  /** Names the agent "Create and start" starts. */
+  agentLabel: string;
+  /** This row's create menu is open; the row is raised so the dropdown paints over the rows below. */
+  menuOpen?: boolean;
+  onMenuOpenChange?: (open: boolean) => void;
 }) {
   const dark = isDarkTheme(theme);
   const dense = density === "compact";
@@ -67,7 +75,7 @@ export function IssueRow({
   const opened = `#${issue.number} opened ${timeAgo(issue.createdAt)}${issue.author ? ` by ${issue.author}` : ""}`;
 
   return (
-    <View style={s.row}>
+    <View style={[s.row, menuOpen ? { zIndex: 7 } : null]}>
       <View style={s.icon}>
         <Icon name="CircleDot" size={16} color={openIssueColor(dark)} />
       </View>
@@ -101,6 +109,9 @@ export function IssueRow({
           dense={dense}
           theme={theme}
           onCreate={onCreate}
+          agentLabel={agentLabel}
+          menuOpen={menuOpen}
+          onMenuOpenChange={onMenuOpenChange ?? (() => {})}
           onOpen={
             issue.workspace && navigation ? () => navigation.openWorkspace({ workspaceId: issue.workspace!.id }) : undefined
           }
@@ -157,6 +168,9 @@ function IssueAction({
   dense,
   theme,
   onCreate,
+  agentLabel,
+  menuOpen,
+  onMenuOpenChange,
   onOpen,
 }: {
   issue: Issue;
@@ -164,9 +178,14 @@ function IssueAction({
   busy: boolean;
   dense: boolean;
   theme: PluginScreenProps["theme"];
-  onCreate: () => void;
+  onCreate: (action: CreateAction) => void;
+  agentLabel: string;
+  menuOpen: boolean;
+  onMenuOpenChange: (open: boolean) => void;
   onOpen?: () => void;
 }) {
+  // As on GitHub, the menu picks what the button does; the button does it.
+  const [action, setAction] = useState<CreateAction>("create");
   const pad = { paddingVertical: dense ? 3 : 6, paddingHorizontal: dense ? 10 : 12 };
   const shell = {
     flexDirection: "row" as const,
@@ -195,20 +214,151 @@ function IssueAction({
   }
   if (issue.orphanBranch) return null;
 
+  const choices = [
+    {
+      action: "create" as const,
+      icon: "GitBranchPlus",
+      title: "Create workspace",
+      button: "Create workspace",
+      buttonLabel: `Create workspace for issue ${issue.number}`,
+      description: "A worktree on a new branch from the default branch. No agent is started.",
+    },
+    {
+      action: "agent" as const,
+      icon: "Wrench",
+      title: "Create and start an agent",
+      button: "Create and start",
+      buttonLabel: `Create workspace and start an agent on issue ${issue.number}`,
+      description: `Also starts ${agentLabel} in the workspace with a prompt to work on this issue.`,
+    },
+  ];
+  const current = choices.find((c) => c.action === action)!;
+  const title = `Create a workspace for #${issue.number}`;
+  const items = choices.map((c) => (
+    <MenuItem
+      key={c.action}
+      icon={c.icon}
+      title={c.title}
+      description={c.description}
+      selected={c.action === action}
+      theme={theme}
+      onPress={() => {
+        setAction(c.action);
+        onMenuOpenChange(false);
+      }}
+    />
+  ));
+
+  // GitHub's split button: the chosen action on the left, the choices behind the chevron.
+  return (
+    <View>
+      <View style={[shell, busy && !pending ? { opacity: 0.5 } : null]}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={current.buttonLabel}
+          disabled={busy}
+          onPress={() => onCreate(action)}
+          style={[pad, { flexDirection: "row", alignItems: "center", gap: 6 }]}
+        >
+          {pending ? (
+            <ActivityIndicator size="small" color={theme.colors.accent} />
+          ) : (
+            <Icon name={current.icon} size={16} color={theme.colors.accent} />
+          )}
+          <Text style={label}>{pending ? "Creating…" : current.button}</Text>
+        </Pressable>
+        <View style={{ width: 1, backgroundColor: theme.colors.border }} />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`More ways to create a workspace for issue ${issue.number}`}
+          aria-expanded={menuOpen}
+          aria-haspopup="menu"
+          disabled={busy}
+          onPress={() => onMenuOpenChange(!menuOpen)}
+          style={({ pressed }) => ({
+            justifyContent: "center",
+            paddingHorizontal: dense ? 6 : 8,
+            backgroundColor: menuOpen || pressed ? theme.colors.surface1 : "transparent",
+          })}
+        >
+          <Icon name="ChevronDown" size={16} color={theme.colors.foregroundMuted} />
+        </Pressable>
+      </View>
+      {menuOpen ? (
+        <View
+          accessibilityRole="menu"
+          accessibilityLabel={title}
+          style={{
+            position: "absolute",
+            top: "100%",
+            right: 0,
+            marginTop: 4,
+            width: 320,
+            maxWidth: 320,
+            padding: 4,
+            borderWidth: 1,
+            borderColor: theme.colors.border,
+            borderRadius: 12,
+            backgroundColor: theme.colors.surface1,
+            shadowColor: "#000",
+            shadowOpacity: 0.3,
+            shadowRadius: 12,
+            shadowOffset: { width: 0, height: 6 },
+            elevation: 8,
+            zIndex: 20,
+          }}
+        >
+          {items}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+/** A choice in the split button's menu, checked when it is the button's current action. */
+function MenuItem({
+  icon,
+  title,
+  description,
+  selected,
+  theme,
+  onPress,
+}: {
+  icon: string;
+  title: string;
+  description: string;
+  selected: boolean;
+  theme: PluginScreenProps["theme"];
+  onPress: () => void;
+}) {
   return (
     <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`Create workspace for issue ${issue.number}`}
-      disabled={busy}
-      onPress={onCreate}
-      style={[shell, pad, { alignItems: "center", gap: 6 }, busy && !pending ? { opacity: 0.5 } : null]}
+      // GitHub's role for these; React Native's types omit it, react-native-web passes it through.
+      role={"menuitemradio" as Role}
+      aria-checked={selected}
+      accessibilityLabel={title}
+      accessibilityHint={description}
+      onPress={onPress}
+      style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => ({
+        flexDirection: "row",
+        alignItems: "flex-start",
+        gap: 8,
+        paddingVertical: 8,
+        paddingHorizontal: 8,
+        borderRadius: 6,
+        backgroundColor: pressed || hovered ? theme.colors.surface2 : "transparent",
+      })}
     >
-      {pending ? (
-        <ActivityIndicator size="small" color={theme.colors.accent} />
-      ) : (
-        <Icon name="GitBranchPlus" size={16} color={theme.colors.accent} />
-      )}
-      <Text style={label}>{pending ? "Creating…" : "Create workspace"}</Text>
+      <View style={{ width: 16, paddingTop: 1 }}>
+        {selected ? <Icon name="Check" size={16} color={theme.colors.foreground} /> : null}
+      </View>
+      <View style={{ paddingTop: 1 }}>
+        <Icon name={icon} size={16} color={theme.colors.accent} />
+      </View>
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text style={{ color: theme.colors.foreground, fontSize: 14, fontWeight: selected ? "600" : "400" }}>{title}</Text>
+        <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12 }}>{description}</Text>
+      </View>
     </Pressable>
   );
 }

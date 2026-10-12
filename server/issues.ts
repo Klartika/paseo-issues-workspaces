@@ -1,10 +1,25 @@
 import { execCommand, type PluginHandlerContext } from "@getpaseo/plugin/server";
-import { branchName, issueMatcher, parseGitHubRemote, type Issue, type Preferences } from "../shared/issues";
+import {
+  branchName,
+  defaultAgent,
+  issueMatcher,
+  parseGitHubRemote,
+  renderPrompt,
+  type CreateAction,
+  type Issue,
+  type Preferences,
+} from "../shared/issues";
 
 type PaseoApi = PluginHandlerContext["paseo"];
 
 const run = (cmd: string, args: string[], cwd?: string) =>
   execCommand(cmd, args, { timeout: 60_000, cwd });
+
+function errorText(error: unknown): string {
+  const stderr = (error as { stderr?: unknown })?.stderr;
+  if (typeof stderr === "string" && stderr.trim()) return stderr.trim().split("\n")[0];
+  return error instanceof Error ? error.message : String(error);
+}
 
 // The desktop-managed daemon does not inherit a login shell's PATH, so Homebrew's
 // bin directory is usually missing from it.
@@ -245,13 +260,21 @@ export async function issueList(
   return { issues: toIssues(items, prefs.branchPrefix, context) };
 }
 
+/** The configured `provider/model`, else the first ready provider with its default model. */
+async function resolveAgent(paseo: PaseoApi, configured: string): Promise<string> {
+  if (configured) return configured;
+  const agent = defaultAgent((await paseo.providers.snapshot()).entries);
+  if (!agent) throw new Error("No agent provider is ready on this host. Choose one in the plugin's settings.");
+  return agent;
+}
+
 // A double press must not create two worktrees for one issue.
 const inFlight = new Set<string>();
 
 export async function createWorkspace(
   paseo: PaseoApi,
   prefs: Preferences,
-  { projectId, number: n }: { projectId: string; number: number },
+  { projectId, number: n, action }: { projectId: string; number: number; action: CreateAction },
 ) {
   const key = `${projectId}#${n}`;
   if (inFlight.has(key)) throw new Error(`#${n} is already being created`);
@@ -263,10 +286,10 @@ export async function createWorkspace(
     const project = target.primary;
 
     const [issue, repo] = await Promise.all([
-      gh(["issue", "view", String(n), "--repo", target.repo, "--json", "title,state"]),
+      gh(["issue", "view", String(n), "--repo", target.repo, "--json", "title,state,url"]),
       gh(["repo", "view", target.repo, "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"]),
     ]);
-    const { title, state } = JSON.parse(issue.stdout) as { title: string; state: string };
+    const { title, state, url } = JSON.parse(issue.stdout) as { title: string; state: string; url: string };
     if (state !== "OPEN") throw new Error(`#${n} is ${state.toLowerCase()}`);
     const defaultBranch = repo.stdout.trim();
     if (!defaultBranch) throw new Error(`${target.repo} has no default branch`);
@@ -276,10 +299,17 @@ export async function createWorkspace(
     if (existing.workspace) throw new Error(`#${n} already has workspace “${existing.workspace.name}”`);
     if (existing.orphanBranch) throw new Error(`#${n} already has local branch ${existing.orphanBranch}`);
 
+    // Resolved before anything is created, so a missing provider leaves no workspace behind.
+    const agent = action === "agent" ? await resolveAgent(paseo, prefs.agent) : null;
+    const prompt =
+      action === "agent" ? renderPrompt(prefs.agentPrompt, { number: String(n), title, url, repo: target.repo }) : null;
+
     await run("git", ["-C", project.root, "fetch", target.remote, defaultBranch, "--quiet"]);
     const branch = branchName(prefs.branchPrefix, n, title);
     const workspace = await paseo.workspaces.create({
       title: `#${n} ${title}`,
+      // Tells the daemon an agent is coming, so the workspace shows as running right away.
+      ...(prompt ? { firstAgentContext: { prompt, attachments: [] } } : {}),
       source: {
         kind: "worktree",
         cwd: project.root,
@@ -289,7 +319,14 @@ export async function createWorkspace(
       },
     });
     console.log(`created workspace ${workspace.id} for ${target.repo}#${n} on ${branch}`);
-    return { workspaceId: workspace.id, branch };
+    if (!agent || !prompt) return { workspaceId: workspace.id, branch, agentId: null, agent: null };
+
+    // The agent runs in the new worktree; the prompt is its first message.
+    const started = await workspace.agents.create({ config: { provider: agent }, prompt }).catch((error: unknown) => {
+      throw new Error(`Workspace “#${n} ${title}” was created, but the agent (${agent}) could not start: ${errorText(error)}`);
+    });
+    console.log(`started agent ${started.id} (${agent}) for ${target.repo}#${n}`);
+    return { workspaceId: workspace.id, branch, agentId: started.id, agent };
   } finally {
     inFlight.delete(key);
   }
