@@ -1,0 +1,702 @@
+// @vitest-environment jsdom
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DEFAULT_PREFERENCES, type Issue, type Preferences, type RepoProject } from "../shared/issues";
+import { host, readySettings, resetHost } from "./test-host";
+
+vi.mock("@getpaseo/plugin/client", async () => (await import("./test-host")).clientModule);
+vi.mock("@getpaseo/plugin/client/react-native", async () => (await import("./test-host")).reactNativeModule);
+vi.mock("@getpaseo/plugin/client/ui", async () => (await import("./test-host")).uiModule);
+
+const { IssuesScreen } = await import("./issues-screen");
+
+// --- Fixtures -----------------------------------------------------------------------------------
+
+const lightTheme = {
+  colors: {
+    surface0: "#ffffff",
+    surface1: "#f6f8fa",
+    surface2: "#eaeef2",
+    border: "#d0d7de",
+    foreground: "#1f2328",
+    foregroundMuted: "#59636e",
+    accent: "#0969da",
+    accentForeground: "#ffffff",
+    statusSuccess: "#1a7f37",
+    statusWarning: "#9a6700",
+    statusDanger: "#d1242f",
+  },
+};
+
+const theme = {
+  colors: {
+    surface0: "#0d1117",
+    surface1: "#161b22",
+    surface2: "#21262d",
+    border: "#30363d",
+    foreground: "#e6edf3",
+    foregroundMuted: "#7d8590",
+    accent: "#2f81f7",
+    accentForeground: "#ffffff",
+    statusSuccess: "#3fb950",
+    statusWarning: "#d29922",
+    statusDanger: "#f85149",
+  },
+};
+
+const issue = (number: number, overrides: Partial<Issue> = {}): Issue => ({
+  number,
+  title: `Issue ${number}`,
+  url: `https://github.com/octo/repo/issues/${number}`,
+  labels: [],
+  author: "octocat",
+  createdAt: new Date(Date.now() - 2 * 86_400_000).toISOString(),
+  workspace: null,
+  orphanBranch: null,
+  ...overrides,
+});
+
+const project = (repo: string, overrides: Partial<RepoProject> = {}): RepoProject => ({
+  projectId: `p-${repo}`,
+  projectName: repo.split("/")[1],
+  repo,
+  otherProjects: [],
+  ...overrides,
+});
+
+function serveProjects(repos: RepoProject[], skipped: { projectName: string; reason: string }[] = []) {
+  host.rpcs.set("issues.projects", async () => ({ repos, skipped }));
+}
+
+type PageRequest = { projectId: string; query: string; page: number };
+
+/** Fakes issues.page from every match per project id, 25 to a page, recording requests. */
+function servePages(table: Record<string, Issue[] | Error>) {
+  const requests: PageRequest[] = [];
+  host.rpcs.set("issues.page", async (input) => {
+    const request = input as PageRequest;
+    requests.push(request);
+    const all = table[request.projectId];
+    if (all === undefined) throw new Error(`no fixture for ${request.projectId}`);
+    if (all instanceof Error) throw all;
+    return { issues: all.slice((request.page - 1) * 25, request.page * 25), totalCount: all.length };
+  });
+  return requests;
+}
+
+function serveCreate() {
+  const requests: unknown[] = [];
+  host.rpcs.set("issues.create-workspace", async (input) => {
+    requests.push(input);
+    const { action } = input as { action: string };
+    return {
+      workspaceId: "wks_new",
+      branch: "issue/1-x",
+      agentId: action === "agent" ? "agt" : null,
+      agent: action === "agent" ? "claude/opus" : null,
+    };
+  });
+  return requests;
+}
+
+/** One project, octo/repo, with the given issues. */
+function oneProject(issues: Issue[] | Error) {
+  serveProjects([project("octo/repo")]);
+  return servePages({ "p-octo/repo": issues });
+}
+
+const navigation = { openWorkspace: vi.fn(), openAgent: vi.fn() };
+
+function renderScreen({ compact = false, light = false }: { compact?: boolean; light?: boolean } = {}) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={client}>
+      <IssuesScreen
+        theme={light ? lightTheme : theme}
+        layout={{ compact, platform: "web" }}
+        host={{ id: "srv_here", label: "Laptop" }}
+        navigation={navigation}
+        params={{}}
+      />
+    </QueryClientProvider>,
+  );
+}
+
+const prefs = (overrides: Partial<Preferences> = {}): Preferences => ({ ...DEFAULT_PREFERENCES, ...overrides });
+const search = (text: string) => {
+  const box = screen.getByLabelText(/Search issues/);
+  fireEvent.change(box, { target: { value: text } });
+  fireEvent.keyDown(box, { key: "Enter" });
+};
+
+/**
+ * Whether `a` paints above `b`. react-native-web gives every View position: relative and a
+ * z-index, so each View is its own stacking context: compare the branches where they diverge.
+ */
+function paintsAbove(a: Element, b: Element) {
+  const chain = (el: Element) => {
+    const out: Element[] = [];
+    for (let e: Element | null = el; e; e = e.parentElement) out.unshift(e);
+    return out;
+  };
+  const [ca, cb] = [chain(a), chain(b)];
+  let i = 0;
+  while (ca[i] === cb[i]) i++;
+  const z = (el: Element) => Number(getComputedStyle(el).zIndex) || 0;
+  if (z(ca[i]) !== z(cb[i])) return z(ca[i]) > z(cb[i]);
+  return Boolean(cb[i].compareDocumentPosition(ca[i]) & Node.DOCUMENT_POSITION_FOLLOWING);
+}
+
+beforeEach(() => {
+  resetHost();
+  navigation.openWorkspace.mockClear();
+});
+afterEach(cleanup);
+
+// --- Loading ------------------------------------------------------------------------------------
+
+describe("issues screen: loading", () => {
+  it("shows page 1 of issues assigned to me in the project", async () => {
+    readySettings(prefs());
+    const requests = oneProject([issue(1)]);
+    renderScreen();
+
+    expect(await screen.findByText("Issue 1")).toBeTruthy();
+    expect(requests).toEqual([{ projectId: "p-octo/repo", query: "assignee:@me", page: 1 }]);
+  });
+
+  it("starts from the saved search", async () => {
+    readySettings(prefs({ searchQuery: "label:bug" }));
+    const requests = oneProject([]);
+    renderScreen();
+
+    await waitFor(() => expect(requests.map((r) => r.query)).toEqual(["label:bug"]));
+  });
+
+  it("shows why issues could not load, inside the table", async () => {
+    readySettings(prefs());
+    oneProject(new Error("GitHub CLI is not signed in on this host. Run `gh auth login`."));
+    renderScreen();
+
+    expect(await screen.findByText(/Could not load issues: GitHub CLI is not signed in/)).toBeTruthy();
+  });
+
+  it("says when nothing matches", async () => {
+    readySettings(prefs());
+    oneProject([]);
+    renderScreen();
+
+    expect(await screen.findByText("No results matched your search.")).toBeTruthy();
+    expect(screen.getByText("0 Open")).toBeTruthy();
+  });
+
+  it("explains when no project is on GitHub, without listing the skipped ones", async () => {
+    readySettings(prefs());
+    serveProjects([], [{ projectName: "scratch", reason: "no git remote" }]);
+    renderScreen();
+
+    expect(await screen.findByText(/None of your Paseo projects has a github.com remote/)).toBeTruthy();
+    expect(screen.queryByText(/Not on GitHub/)).toBeNull();
+  });
+
+  it("does not list projects that are not on GitHub", async () => {
+    readySettings(prefs());
+    serveProjects([project("octo/repo")], [{ projectName: "dotfiles", reason: "no git remote" }]);
+    servePages({ "p-octo/repo": [issue(1)] });
+    renderScreen();
+
+    await screen.findByText("Issue 1");
+    expect(screen.queryByText(/Not on GitHub/)).toBeNull();
+    expect(screen.queryByText(/dotfiles/)).toBeNull();
+  });
+
+  it("has no title and no summary line above the list", async () => {
+    readySettings(prefs());
+    oneProject([issue(1), issue(2, { workspace: { id: "w", name: "#2" } })]);
+    renderScreen();
+
+    await screen.findByText("Issue 1");
+    expect(screen.queryByText("Issues")).toBeNull();
+    expect(screen.queryByText(/Laptop/)).toBeNull();
+    expect(screen.queryByText(/open across/)).toBeNull();
+    expect(screen.queryByText(/without a workspace/)).toBeNull();
+  });
+});
+
+// --- Rows ---------------------------------------------------------------------------------------
+
+describe("issues screen: rows", () => {
+  it("shows the GitHub open icon, title, labels and who opened it", async () => {
+    readySettings(prefs());
+    oneProject([issue(7, { labels: [{ name: "bug", color: "d73a4a" }], author: "github-actions" })]);
+    renderScreen();
+
+    await screen.findByText("Issue 7");
+    expect(screen.getByText("bug")).toBeTruthy();
+    expect(screen.getByText("#7 opened 2 days ago by github-actions")).toBeTruthy();
+    expect(screen.getByText("1 Open")).toBeTruthy();
+    expect(document.querySelectorAll('[data-icon="CircleDot"]').length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("opens the issue on GitHub from its title", async () => {
+    readySettings(prefs());
+    oneProject([issue(7)]);
+    renderScreen();
+
+    fireEvent.click(await screen.findByRole("link", { name: /Open issue 7 on GitHub/ }));
+    expect(host.opened).toEqual(["https://github.com/octo/repo/issues/7"]);
+  });
+
+  it("offers Open workspace for a covered issue", async () => {
+    readySettings(prefs());
+    oneProject([issue(7, { workspace: { id: "wks_7", name: "#7 Issue 7" } })]);
+    renderScreen();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open workspace for issue 7" }));
+    expect(navigation.openWorkspace).toHaveBeenCalledWith({ workspaceId: "wks_7" });
+    expect(screen.queryByRole("button", { name: /Create workspace for issue 7/ })).toBeNull();
+  });
+
+  it("shows a leftover branch instead of a create button", async () => {
+    readySettings(prefs());
+    oneProject([issue(7, { orphanBranch: "issue/7-old" })]);
+    renderScreen();
+
+    expect(await screen.findByText("Local branch issue/7-old exists without a workspace")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Create workspace for issue 7/ })).toBeNull();
+  });
+
+  it("links to a workspace for the issue on another host", async () => {
+    readySettings(prefs());
+    oneProject([issue(7)]);
+    host.hosts = [
+      { serverId: "srv_here", label: "Laptop", status: "online" },
+      { serverId: "srv_box", label: "Build box", status: "online" },
+    ];
+    host.remoteWorkspaces.set("srv_box", [
+      {
+        id: "wks_r",
+        projectId: "x",
+        title: "#7 Remote",
+        name: "x",
+        gitRuntime: { currentBranch: "", remoteUrl: "git@github.com:octo/repo.git" },
+      },
+    ]);
+    renderScreen();
+
+    fireEvent.click(await screen.findByRole("link", { name: "Open workspace #7 Remote on Build box" }));
+    expect(navigation.openWorkspace).toHaveBeenCalledWith({ workspaceId: "wks_r", serverId: "srv_box" });
+  });
+
+  it("switches density and saves it", async () => {
+    const saves = readySettings(prefs());
+    oneProject([issue(1)]);
+    renderScreen();
+    await screen.findByText("Issue 1");
+
+    fireEvent.click(screen.getByRole("button", { name: "Compact density" }));
+
+    await waitFor(() => expect(saves.at(-1)?.density).toBe("compact"));
+  });
+
+  it("puts the metadata on the title line in compact density", async () => {
+    readySettings(prefs({ density: "compact" }));
+    oneProject([issue(7)]);
+    renderScreen();
+
+    const meta = await screen.findByText(/^#7 opened/);
+    const title = screen.getByText("Issue 7");
+    expect(title.closest("[role=link]")!.parentElement!.contains(meta)).toBe(true);
+  });
+});
+
+// --- Project picker -----------------------------------------------------------------------------
+
+describe("issues screen: project picker", () => {
+  it("is hidden when there is only one project", async () => {
+    readySettings(prefs());
+    oneProject([issue(1)]);
+    renderScreen();
+
+    await screen.findByText("Issue 1");
+    expect(screen.queryAllByRole("tab")).toEqual([]);
+  });
+
+  it("offers one choice per project and shows only the selected project's issues", async () => {
+    readySettings(prefs());
+    serveProjects([project("octo/a"), project("octo/b", { otherProjects: ["b-ios"] })]);
+    const requests = servePages({ "p-octo/a": [issue(1)], "p-octo/b": [issue(2)] });
+    renderScreen();
+
+    await screen.findByText("Issue 1");
+    expect(screen.getAllByRole("tab").map((r) => [r.getAttribute("aria-label"), r.getAttribute("aria-selected")])).toEqual([
+      ["a (octo/a)", "true"],
+      ["b (octo/b, also b-ios)", "false"],
+    ]);
+    expect(screen.queryByText("Issue 2")).toBeNull();
+    expect(requests.map((r) => r.projectId)).toEqual(["p-octo/a"]);
+  });
+
+  it("switches project, saving the choice and starting on page 1", async () => {
+    const saves = readySettings(prefs());
+    serveProjects([project("octo/a"), project("Octo/B")]);
+    const requests = servePages({
+      "p-octo/a": Array.from({ length: 30 }, (_, i) => issue(i + 1)),
+      "p-Octo/B": [issue(99)],
+    });
+    renderScreen();
+    await screen.findByText("Issue 1");
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    await screen.findByText("Issue 26");
+
+    fireEvent.click(screen.getByRole("tab", { name: "B (Octo/B)" }));
+
+    expect(await screen.findByText("Issue 99")).toBeTruthy();
+    expect(screen.queryByText("Issue 26")).toBeNull();
+    expect(requests.at(-1)).toEqual({ projectId: "p-Octo/B", query: "assignee:@me", page: 1 });
+    expect(screen.getByRole("tab", { name: "B (Octo/B)" }).getAttribute("aria-selected")).toBe("true");
+    await waitFor(() => expect(saves.at(-1)?.selectedRepo).toBe("octo/b"));
+  });
+
+  it("opens on the saved project", async () => {
+    readySettings(prefs({ selectedRepo: "octo/b" }));
+    serveProjects([project("octo/a"), project("octo/b")]);
+    servePages({ "p-octo/a": [issue(1)], "p-octo/b": [issue(2)] });
+    renderScreen();
+
+    expect(await screen.findByText("Issue 2")).toBeTruthy();
+    expect(screen.queryByText("Issue 1")).toBeNull();
+  });
+
+  it("falls back to the first project when the saved one is gone", async () => {
+    readySettings(prefs({ selectedRepo: "octo/gone" }));
+    serveProjects([project("octo/a"), project("octo/b")]);
+    servePages({ "p-octo/a": [issue(1)], "p-octo/b": [issue(2)] });
+    renderScreen();
+
+    expect(await screen.findByText("Issue 1")).toBeTruthy();
+  });
+});
+
+// --- Search -------------------------------------------------------------------------------------
+
+describe("issues screen: search", () => {
+  it("shows the query without the implied is:issue state:open", async () => {
+    readySettings(prefs());
+    oneProject([]);
+    renderScreen();
+
+    const box = (await screen.findByLabelText(/Search issues/)) as HTMLInputElement;
+    expect(box.value).toBe("assignee:@me");
+  });
+
+  it("searches the selected project on Enter and saves the search", async () => {
+    const saves = readySettings(prefs());
+    const requests = oneProject([]);
+    renderScreen();
+    await screen.findByLabelText(/Search issues/);
+
+    search("assignee:@me   label:bug");
+
+    await waitFor(() =>
+      expect(requests.at(-1)).toEqual({ projectId: "p-octo/repo", query: "assignee:@me label:bug", page: 1 }),
+    );
+    expect(saves.at(-1)?.searchQuery).toBe("assignee:@me label:bug");
+  });
+
+  it("clears to every open issue and offers a way back to my issues", async () => {
+    readySettings(prefs());
+    const requests = oneProject([]);
+    renderScreen();
+    await screen.findByLabelText(/Search issues/);
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+    await waitFor(() => expect(requests.at(-1)?.query).toBe(""));
+
+    fireEvent.click(screen.getByRole("button", { name: "Assigned to me" }));
+    await waitFor(() => expect(requests.at(-1)?.query).toBe("assignee:@me"));
+  });
+
+});
+
+// --- Paging -------------------------------------------------------------------------------------
+
+describe("issues screen: paging", () => {
+  const many = Array.from({ length: 60 }, (_, i) => issue(60 - i));
+
+  it("shows page 1 with GitHub's pager and the full count", async () => {
+    readySettings(prefs());
+    oneProject(many);
+    renderScreen();
+
+    await screen.findByText("Issue 60");
+    expect(screen.getAllByText(/^Issue \d+$/)).toHaveLength(25);
+    expect(screen.getByText("60 Open")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Page 1" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("button", { name: "Previous page" }).getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("fetches each page from the server only when it is opened", async () => {
+    readySettings(prefs());
+    const requests = oneProject(many);
+    renderScreen();
+    await screen.findByText("Issue 60");
+
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    expect(await screen.findByText("Issue 35")).toBeTruthy();
+    expect(screen.queryByText("Issue 60")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Page 3" }));
+    expect(await screen.findByText("Issue 10")).toBeTruthy();
+    expect(screen.getAllByText(/^Issue \d+$/)).toHaveLength(10);
+    expect(screen.getByRole("button", { name: "Next page" }).getAttribute("aria-disabled")).toBe("true");
+    expect(requests.map((r) => r.page)).toEqual([1, 2, 3]);
+  });
+
+  it("returns to a page already seen without asking the server again", async () => {
+    readySettings(prefs());
+    const requests = oneProject(many);
+    renderScreen();
+    await screen.findByText("Issue 60");
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    await screen.findByText("Issue 35");
+
+    fireEvent.click(screen.getByRole("button", { name: "Page 1" }));
+
+    expect(await screen.findByText("Issue 60")).toBeTruthy();
+    expect(requests).toHaveLength(2);
+  });
+
+  it("returns to page 1 after a new search", async () => {
+    readySettings(prefs());
+    const requests = oneProject(many);
+    renderScreen();
+    await screen.findByText("Issue 60");
+    fireEvent.click(screen.getByRole("button", { name: "Page 3" }));
+    await screen.findByText("Issue 10");
+
+    search("label:bug");
+
+    await waitFor(() => expect(requests.at(-1)).toMatchObject({ query: "label:bug", page: 1 }));
+  });
+
+  it("stops at page 40, GitHub's search limit, and formats large counts", async () => {
+    readySettings(prefs());
+    serveProjects([project("octo/repo")]);
+    host.rpcs.set("issues.page", async () => ({ issues: many.slice(0, 25), totalCount: 5432 }));
+    renderScreen();
+    await screen.findByText("Issue 60");
+
+    expect(screen.getByText("5,432 Open")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Page 40" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Page 41" })).toBeNull();
+  });
+
+  it("shows no pager for a single page", async () => {
+    readySettings(prefs());
+    oneProject(many.slice(0, 25));
+    renderScreen();
+    await screen.findByText("Issue 60");
+
+    expect(screen.queryByRole("button", { name: "Next page" })).toBeNull();
+  });
+
+  it("shows Page X of Y instead of numbers on narrow layouts", async () => {
+    readySettings(prefs());
+    oneProject(many);
+    renderScreen({ compact: true });
+    await screen.findByText("Issue 60");
+
+    expect(screen.getByText("Page 1 of 3")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Page 2" })).toBeNull();
+  });
+});
+
+// --- Themes -------------------------------------------------------------------------------------
+
+describe("issues screen: themes", () => {
+  const bug = { name: "bug", color: "d73a4a" };
+  const labelBox = () => getComputedStyle(screen.getByText("bug").parentElement!);
+  const openIconColors = () =>
+    [...document.querySelectorAll('[data-icon="CircleDot"]')].map((el) => el.getAttribute("data-color"));
+
+  it("uses solid labels with contrasting text and GitHub's light green on light themes", async () => {
+    readySettings(prefs());
+    oneProject([issue(7, { labels: [bug] })]);
+    renderScreen({ light: true });
+    await screen.findByText("Issue 7");
+
+    expect(labelBox().backgroundColor).toBe("rgb(215, 58, 74)");
+    expect(getComputedStyle(screen.getByText("bug")).color).toBe("rgb(255, 255, 255)");
+    expect(new Set(openIconColors())).toEqual(new Set(["#1a7f37"]));
+  });
+
+  it("uses tinted labels and GitHub's dark green on dark themes", async () => {
+    readySettings(prefs());
+    oneProject([issue(7, { labels: [bug] })]);
+    renderScreen();
+    await screen.findByText("Issue 7");
+
+    expect(labelBox().backgroundColor).toBe("rgba(215, 58, 74, 0.18)");
+    expect(new Set(openIconColors())).toEqual(new Set(["#3fb950"]));
+  });
+
+  it("takes every other color from the theme", async () => {
+    readySettings(prefs());
+    oneProject([issue(7)]);
+    renderScreen({ light: true });
+    await screen.findByText("Issue 7");
+
+    expect(getComputedStyle(screen.getByText("Issue 7")).color).toBe("rgb(31, 35, 40)");
+    expect(getComputedStyle(screen.getByText(/^#7 opened/)).color).toBe("rgb(89, 99, 110)");
+  });
+});
+
+// --- Creating -----------------------------------------------------------------------------------
+
+describe("issues screen: creating a workspace", () => {
+  it("creates a workspace from the main button", async () => {
+    readySettings(prefs());
+    oneProject([issue(7)]);
+    const requests = serveCreate();
+    renderScreen();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Create workspace for issue 7" }));
+
+    await waitFor(() => expect(requests).toEqual([{ projectId: "p-octo/repo", number: 7, action: "create" }]));
+    await waitFor(() => expect(host.toasts).toContainEqual({ message: "Created workspace for #7", variant: "success" }));
+  });
+
+  it("opens a dropdown under the arrow with the current choice checked, like GitHub's split buttons", async () => {
+    readySettings(prefs({ agent: "claude/opus" }));
+    oneProject([issue(7)]);
+    renderScreen();
+
+    const arrow = await screen.findByRole("button", { name: "More ways to create a workspace for issue 7" });
+    fireEvent.click(arrow);
+
+    const menu = screen.getByRole("menu", { name: "Create a workspace for #7" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(arrow.getAttribute("aria-expanded")).toBe("true");
+    const [create, fix] = within(menu).getAllByRole("menuitemradio");
+    expect(create.getAttribute("aria-label")).toBe("Create workspace");
+    expect(create.getAttribute("aria-checked")).toBe("true");
+    expect(fix.getAttribute("aria-checked")).toBe("false");
+    expect(within(menu).getByText(/Also starts claude\/opus/)).toBeTruthy();
+    expect(menu.querySelector('[data-icon="Wrench"]')).not.toBeNull();
+  });
+
+  it("switches the button to the chosen action without running it, then runs it from the button", async () => {
+    readySettings(prefs({ agent: "claude/opus" }));
+    oneProject([issue(7)]);
+    const requests = serveCreate();
+    renderScreen();
+
+    fireEvent.click(await screen.findByRole("button", { name: "More ways to create a workspace for issue 7" }));
+    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitemradio", { name: "Create and start an agent" }));
+
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(requests).toEqual([]);
+    const main = screen.getByRole("button", { name: "Create workspace and start an agent on issue 7" });
+    expect(within(main).getByText("Create and start")).toBeTruthy();
+    expect(main.querySelector('[data-icon="Wrench"]')).not.toBeNull();
+
+    fireEvent.click(main);
+
+    await waitFor(() => expect(requests).toEqual([{ projectId: "p-octo/repo", number: 7, action: "agent" }]));
+    await waitFor(() =>
+      expect(host.toasts).toContainEqual({
+        message: "Created workspace for #7 and started claude/opus",
+        variant: "success",
+      }),
+    );
+  });
+
+  it("keeps each issue's choice to itself", async () => {
+    readySettings(prefs());
+    oneProject([issue(7), issue(8)]);
+    renderScreen();
+
+    fireEvent.click(await screen.findByRole("button", { name: "More ways to create a workspace for issue 7" }));
+    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitemradio", { name: "Create and start an agent" }));
+
+    expect(screen.getByRole("button", { name: "Create workspace and start an agent on issue 7" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Create workspace for issue 8" })).toBeTruthy();
+  });
+
+  it("closes the dropdown on a press outside it, which does not reach what is under it", async () => {
+    readySettings(prefs());
+    oneProject([issue(7), issue(8)]);
+    const requests = serveCreate();
+    renderScreen();
+    fireEvent.click(await screen.findByRole("button", { name: "More ways to create a workspace for issue 7" }));
+    const menu = screen.getByRole("menu");
+    const entry = within(menu).getAllByRole("menuitemradio")[1];
+    const otherCreate = screen.getByRole("button", { name: "Create workspace for issue 8" });
+    const layers = screen.getAllByLabelText("Close menu");
+
+    // The open dropdown is on top of every dismiss layer; the next row's button is under one.
+    for (const layer of layers) expect(paintsAbove(entry, layer)).toBe(true);
+    const covering = layers.filter((layer) => paintsAbove(layer, otherCreate));
+    expect(covering.length).toBeGreaterThan(0);
+
+    fireEvent.click(covering[0]);
+
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(requests).toEqual([]);
+  });
+
+  it("paints the dropdown above the pager, so a menu on the last row can be used", async () => {
+    readySettings(prefs());
+    oneProject(Array.from({ length: 30 }, (_, i) => issue(30 - i)));
+    renderScreen();
+    fireEvent.click(await screen.findByRole("button", { name: "More ways to create a workspace for issue 6" }));
+
+    const entry = within(screen.getByRole("menu")).getAllByRole("menuitemradio")[0];
+    expect(paintsAbove(entry, screen.getByRole("button", { name: "Next page" }))).toBe(true);
+  });
+
+  it("names the default agent when none is chosen", async () => {
+    readySettings(prefs());
+    oneProject([issue(7)]);
+    renderScreen();
+
+    fireEvent.click(await screen.findByRole("button", { name: "More ways to create a workspace for issue 7" }));
+    expect(within(screen.getByRole("menu")).getByText(/Also starts the host's default agent/)).toBeTruthy();
+  });
+
+  it("disables other create buttons while one is running and reports failures", async () => {
+    readySettings(prefs());
+    oneProject([issue(7), issue(8)]);
+    let fail!: (error: Error) => void;
+    host.rpcs.set("issues.create-workspace", () => new Promise((_resolve, reject) => (fail = reject)));
+    renderScreen();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Create workspace for issue 7" }));
+    expect(await screen.findByText("Creating…")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Create workspace for issue 8" }).getAttribute("aria-disabled")).toBe(
+      "true",
+    );
+
+    await act(async () => fail(new Error("#7 already has local branch issue/7-x")));
+
+    await waitFor(() =>
+      expect(host.toasts).toContainEqual({ message: "#7: #7 already has local branch issue/7-x", variant: "error" }),
+    );
+    expect(
+      screen.getByRole("button", { name: "Create workspace for issue 8" }).getAttribute("aria-disabled"),
+    ).not.toBe("true");
+  });
+
+  it("refreshes the issues after creating", async () => {
+    readySettings(prefs());
+    const requests = oneProject([issue(7)]);
+    serveCreate();
+    renderScreen();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Create workspace for issue 7" }));
+
+    await waitFor(() => expect(requests.length).toBe(2));
+  });
+});

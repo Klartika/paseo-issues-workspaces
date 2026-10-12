@@ -15,6 +15,7 @@ See [OVERVIEW.md](OVERVIEW.md) for how it finds issues, names branches, and dete
 ```bash
 npm install
 npm run typecheck
+npm test
 paseo plugin install "$PWD"
 # after edits
 paseo plugin reload issues-workspaces
