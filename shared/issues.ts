@@ -179,6 +179,8 @@ const repoProject = z.object({
   repo: z.string(),
   /** Other projects on the same repository, such as linked worktrees. */
   otherProjects: z.array(z.string()),
+  /** The icon Paseo shows for the project, base64; null when it has none. */
+  icon: z.object({ data: z.string(), mimeType: z.string() }).nullable(),
 });
 export type RepoProject = z.infer<typeof repoProject>;
 

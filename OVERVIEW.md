@@ -2,7 +2,7 @@ Issues Workspaces lists a project's open GitHub issues, laid out like GitHub's i
 
 ## The screen
 
-When you have more than one GitHub project, a row of tabs at the top picks the one to show. Below it are the search box and that project's issues, newest first, 25 to a page with GitHub's pager. Each page is fetched from GitHub when you open it.
+When you have more than one GitHub project, a row of tabs at the top picks the one to show, each with the project's icon from Paseo. Below it are the search box and that project's issues, newest first, 25 to a page with GitHub's pager. Each page is fetched from GitHub when you open it.
 
 The search box takes GitHub's issue search syntax and starts with `assignee:@me`. `is:issue state:open` is always part of the search, so only open issues appear. Try `label:bug`, `author:octocat`, `no:assignee`, or `NOT iOS in:title` to leave out issues with a word in the title; clearing the box lists every open issue.
 

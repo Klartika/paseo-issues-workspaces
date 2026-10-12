@@ -62,6 +62,7 @@ const project = (repo: string, overrides: Partial<RepoProject> = {}): RepoProjec
   projectName: repo.split("/")[1],
   repo,
   otherProjects: [],
+  icon: null,
   ...overrides,
 });
 
@@ -370,6 +371,66 @@ describe("issues screen: project picker", () => {
     expect(requests.at(-1)).toEqual({ projectId: "p-Octo/B", query: "assignee:@me", page: 1 });
     expect(screen.getByRole("tab", { name: "B (Octo/B)" }).getAttribute("aria-selected")).toBe("true");
     await waitFor(() => expect(saves.at(-1)?.selectedRepo).toBe("octo/b"));
+  });
+
+  it("shows each project's Paseo icon, and GitHub's repository icon when there is none", async () => {
+    readySettings(prefs());
+    serveProjects([
+      project("octo/a", { icon: { data: "iVBORw0KGgo=", mimeType: "image/png" } }),
+      project("octo/b", { icon: null }),
+    ]);
+    serveOptions();
+    servePages({ "p-octo/a": [issue(1)], "p-octo/b": [] });
+    renderScreen();
+    await screen.findByText("Issue 1");
+
+    const [a, b] = screen.getAllByRole("tab");
+    expect(a.innerHTML).toContain("data:image/png;base64,iVBORw0KGgo=");
+    expect(a.querySelector('[data-icon="BookMarked"]')).toBeNull();
+    expect(b.querySelector('[data-icon="BookMarked"]')).not.toBeNull();
+  });
+
+  it("falls back from an SVG icon on native platforms, which cannot draw SVG", async () => {
+    readySettings(prefs());
+    serveProjects([
+      project("octo/a", { icon: { data: "PHN2Zy8+", mimeType: "image/svg+xml" } }),
+      project("octo/b"),
+    ]);
+    serveOptions();
+    servePages({ "p-octo/a": [issue(1)], "p-octo/b": [] });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <IssuesScreen
+          theme={theme}
+          layout={{ compact: false, platform: "ios" }}
+          host={{ id: "srv_here", label: "Laptop" }}
+          navigation={navigation}
+          params={{}}
+        />
+      </QueryClientProvider>,
+    );
+    await screen.findByText("Issue 1");
+
+    const [a] = screen.getAllByRole("tab");
+    expect(a.innerHTML).not.toContain("image/svg+xml");
+    expect(a.querySelector('[data-icon="BookMarked"]')).not.toBeNull();
+  });
+
+  it("styles tabs like Paseo's workspace tabs: the selected chip is filled, the others muted", async () => {
+    readySettings(prefs());
+    serveProjects([project("octo/a"), project("octo/b")]);
+    serveOptions();
+    servePages({ "p-octo/a": [issue(1)], "p-octo/b": [] });
+    renderScreen();
+    await screen.findByText("Issue 1");
+
+    const [a, b] = screen.getAllByRole("tab");
+    // theme.colors.surface2 for the selected chip, as in Paseo; no underline.
+    expect(getComputedStyle(a).backgroundColor).toBe("rgb(33, 38, 45)");
+    expect(getComputedStyle(b).backgroundColor).toBe("rgba(0, 0, 0, 0)");
+    expect(getComputedStyle(within(a).getByText("a")).color).toBe("rgb(230, 237, 243)");
+    expect(getComputedStyle(within(b).getByText("b")).color).toBe("rgb(125, 133, 144)");
   });
 
   it("opens on the saved project", async () => {

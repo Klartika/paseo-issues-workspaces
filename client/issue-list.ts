@@ -23,6 +23,8 @@ export type ProjectOption = {
   projectName: string;
   repo: string;
   otherProjects: string[];
+  /** Paseo's icon for the project, when this host can read it. */
+  icon?: { data: string; mimeType: string } | null;
   remote?: RemoteProject;
 };
 

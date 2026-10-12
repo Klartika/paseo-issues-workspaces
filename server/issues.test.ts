@@ -216,7 +216,7 @@ describe("projectList", () => {
     });
 
     expect(await mod.projectList(api)).toEqual({
-      repos: [{ projectId: "p1", projectName: "widgets", repo: "octo/widgets", otherProjects: [] }],
+      repos: [{ projectId: "p1", projectName: "widgets", repo: "octo/widgets", otherProjects: [], icon: null }],
       skipped: [
         { projectName: "gadgets", reason: "remote is not on github.com" },
         { projectName: "scratch", reason: "no git remote" },
@@ -260,7 +260,7 @@ describe("projectList", () => {
     });
 
     expect((await mod.projectList(api)).repos).toEqual([
-      { projectId: "main", projectName: "repo", repo: "octo/repo", otherProjects: ["a-ios"] },
+      { projectId: "main", projectName: "repo", repo: "octo/repo", otherProjects: ["a-ios"], icon: null },
     ]);
   });
 

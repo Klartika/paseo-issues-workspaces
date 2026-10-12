@@ -1,4 +1,5 @@
 import { execCommand, type PluginHandlerContext } from "@getpaseo/plugin/server";
+import { paseoHome, projectIcon } from "./project-icons";
 import {
   branchName,
   defaultAgent,
@@ -47,7 +48,7 @@ async function gh(args: string[]) {
 
 const SIGNED_OUT = /gh auth login|not logged in|authentication required/i;
 
-type Project = { id: string; name: string; root: string; kind: string };
+type Project = { id: string; name: string; root: string; kind: string; customIconRevision: string | null };
 
 async function listProjects(paseo: PaseoApi): Promise<Project[]> {
   const { projects } = await paseo.projects.list();
@@ -56,6 +57,7 @@ async function listProjects(paseo: PaseoApi): Promise<Project[]> {
     name: p.projectCustomName || p.projectDisplayName,
     root: p.projectRootPath,
     kind: p.projectKind,
+    customIconRevision: p.projectCustomIconRevision ?? null,
   }));
 }
 
@@ -242,12 +244,20 @@ const normalizeQuery = (query: string) => query.replace(/\s+/g, " ").trim();
 /** This host's GitHub projects, one per repository, for the project picker. */
 export async function projectList(paseo: PaseoApi) {
   const { repos, skipped } = await githubRepos(await listProjects(paseo));
-  const choices = [...repos.values()].map((r) => ({
-    projectId: r.primary.id,
-    projectName: r.primary.name,
-    repo: r.repo,
-    otherProjects: r.otherProjects,
-  }));
+  const home = paseoHome();
+  const choices = await Promise.all(
+    [...repos.values()].map(async (r) => ({
+      projectId: r.primary.id,
+      projectName: r.primary.name,
+      repo: r.repo,
+      otherProjects: r.otherProjects,
+      icon: await projectIcon(home, {
+        projectId: r.primary.id,
+        root: r.primary.root,
+        customIconRevision: r.primary.customIconRevision,
+      }),
+    })),
+  );
   choices.sort((a, b) => a.projectName.localeCompare(b.projectName));
   return { repos: choices, skipped };
 }

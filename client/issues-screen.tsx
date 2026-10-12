@@ -166,6 +166,7 @@ export function IssuesScreen({
           selectedKey={selected?.key ?? null}
           onSelect={selectProject}
           theme={theme}
+          layout={layout}
         />
       ) : null}
 
