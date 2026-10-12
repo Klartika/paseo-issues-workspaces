@@ -2,7 +2,7 @@
 
 A [Paseo](https://paseo.sh) plugin that lists a project's open GitHub issues and creates a worktree workspace for one with a single press.
 
-See [OVERVIEW.md](OVERVIEW.md) for how it finds issues and names branches.
+See [OVERVIEW.md](OVERVIEW.md) for how it finds issues, names branches, and detects existing workspaces.
 
 ## Requirements
 

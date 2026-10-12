@@ -5,7 +5,7 @@ import { useMemo } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import type { Issue } from "../shared/issues";
 
-type Props = Pick<PluginScreenProps, "theme" | "layout">;
+type Props = Pick<PluginScreenProps, "theme" | "layout" | "navigation">;
 
 /** One issue: its title, which opens it on GitHub, its number, and a button to act on it. */
 export function IssueRow({
@@ -16,6 +16,7 @@ export function IssueRow({
   onCreate,
   theme,
   layout,
+  navigation,
 }: Props & {
   issue: Issue;
   /** The first row in its box draws no divider above it. */
@@ -53,8 +54,20 @@ export function IssueRow({
           <Text style={s.title}>{issue.title}</Text>
         </Pressable>
         <Text style={s.meta}>#{issue.number}</Text>
+        {issue.orphanBranch ? (
+          <Text style={s.meta}>Local branch {issue.orphanBranch} exists without a workspace</Text>
+        ) : null}
       </View>
-      <IssueAction issue={issue} pending={pending} busy={busy} theme={theme} onCreate={onCreate} />
+      <IssueAction
+        issue={issue}
+        pending={pending}
+        busy={busy}
+        theme={theme}
+        onCreate={onCreate}
+        onOpen={
+          issue.workspace && navigation ? () => navigation.openWorkspace({ workspaceId: issue.workspace!.id }) : undefined
+        }
+      />
     </View>
   );
 }
@@ -65,12 +78,14 @@ function IssueAction({
   busy,
   theme,
   onCreate,
+  onOpen,
 }: {
   issue: Issue;
   pending: boolean;
   busy: boolean;
   theme: PluginScreenProps["theme"];
   onCreate: () => void;
+  onOpen?: () => void;
 }) {
   const pad = { paddingVertical: 6, paddingHorizontal: 12 };
   const shell = {
@@ -83,6 +98,22 @@ function IssueAction({
     overflow: "hidden" as const,
   };
   const label = { color: theme.colors.foreground, fontSize: 13, fontWeight: "600" as const };
+
+  if (issue.workspace) {
+    if (!onOpen) return <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12 }}>Has a workspace</Text>;
+    return (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Open workspace for issue ${issue.number}`}
+        onPress={onOpen}
+        style={[shell, pad, { alignItems: "center", gap: 6 }]}
+      >
+        <Icon name="SquareArrowOutUpRight" size={14} color={theme.colors.foregroundMuted} />
+        <Text style={label}>Open workspace</Text>
+      </Pressable>
+    );
+  }
+  if (issue.orphanBranch) return null;
 
   return (
     <Pressable

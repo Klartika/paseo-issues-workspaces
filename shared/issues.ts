@@ -25,10 +25,31 @@ export function parseGitHubRemote(url: string): string | null {
   return m ? `${m[1]}/${m[2]}` : null;
 }
 
+function escapeRegExp(text: string) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * A workspace covers issue `n` when its title starts with `#n`, or its branch is
+ * `<prefix>n-…` or contains `n-` right after a slash.
+ */
+export function issueMatcher(n: number, branchPrefix: string) {
+  const titleRe = new RegExp(`^#${n}\\b`);
+  const branchRes = [new RegExp(`(^|/)${n}-`), new RegExp(`^${escapeRegExp(branchPrefix)}${n}-`)];
+  return {
+    title: (title: string) => titleRe.test(title),
+    branch: (branch: string) => branchRes.some((re) => re.test(branch)),
+  };
+}
+
 const issue = z.object({
   number: z.number(),
   title: z.string(),
   url: z.string(),
+  /** The workspace in this project that already covers this issue, if one does. */
+  workspace: z.object({ id: z.string(), name: z.string() }).nullable(),
+  /** A local branch for this issue with no active workspace (e.g. the workspace was archived). */
+  orphanBranch: z.string().nullable(),
 });
 export type Issue = z.infer<typeof issue>;
 

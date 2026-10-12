@@ -4,13 +4,15 @@ GitHub Issues lists a project's open GitHub issues and creates a workspace for a
 
 When you have more than one GitHub project, a row of tabs at the top picks the one to show. Below it are that project's open issues, newest first, up to 100 of them.
 
-Each issue shows its title and number and a **Create workspace** button. Tapping an issue's title opens it on GitHub.
+Each issue shows its title and number and a **Create workspace** button, or **Open workspace** when a workspace already covers it. Tapping an issue's title opens it on GitHub.
 
 ## How it finds projects
 
 The plugin looks at every git project on the host and reads its `origin` remote. A project is included when that remote points at github.com; projects without one are left out.
 
 A new workspace is a worktree titled `#<number> <issue title>`, on a new branch `issue/<number>-<slug>` taken from a freshly fetched copy of the repository's default branch.
+
+An issue counts as covered when a workspace in the project has a title starting with `#<number>`, or a branch that starts with `issue/<number>-`, or contains `<number>-` after a slash. When a local branch exists for an issue but no workspace does, for example after archiving one, the plugin shows the branch and does not create a second one.
 
 ## Setup
 

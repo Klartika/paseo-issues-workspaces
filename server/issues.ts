@@ -1,5 +1,5 @@
 import { execCommand, type PluginHandlerContext } from "@getpaseo/plugin/server";
-import { BRANCH_PREFIX, branchName, parseGitHubRemote } from "../shared/issues";
+import { BRANCH_PREFIX, branchName, issueMatcher, parseGitHubRemote, type Issue } from "../shared/issues";
 
 type PaseoApi = PluginHandlerContext["paseo"];
 
@@ -41,6 +41,26 @@ async function listProjects(paseo: PaseoApi): Promise<Project[]> {
   }));
 }
 
+type Workspace = { id: string; name: string; branch: string; projectId: string };
+
+async function listWorkspaces(paseo: PaseoApi): Promise<Workspace[]> {
+  const out: Workspace[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await paseo.workspaces.list({ page: { limit: 200, cursor } });
+    for (const w of page.entries) {
+      out.push({
+        id: w.id,
+        name: w.title ?? w.name,
+        branch: w.gitRuntime?.currentBranch ?? "",
+        projectId: w.projectId,
+      });
+    }
+    cursor = page.pageInfo.hasMore ? (page.pageInfo.nextCursor ?? undefined) : undefined;
+  } while (cursor);
+  return out;
+}
+
 type GitHubRemote = { remote: string; repo: string };
 
 /**
@@ -57,6 +77,11 @@ async function resolveRemote(root: string): Promise<GitHubRemote | string> {
   const repo = parseGitHubRemote(stdout);
   if (!repo) return "remote is not on github.com";
   return { remote: "origin", repo };
+}
+
+async function localBranches(root: string): Promise<string[]> {
+  const { stdout } = await run("git", ["-C", root, "branch", "--format=%(refname:short)"]);
+  return stdout.split("\n").filter(Boolean);
 }
 
 type GitHubProject = {
@@ -85,6 +110,15 @@ async function githubProjects(projects: Project[]) {
   return { projects: found, skipped };
 }
 
+function coverage(n: number, branchPrefix: string, workspaces: Workspace[], branches: string[]) {
+  const match = issueMatcher(n, branchPrefix);
+  const ws = workspaces.find((w) => match.title(w.name) || match.branch(w.branch));
+  return {
+    workspace: ws ? { id: ws.id, name: ws.name } : null,
+    orphanBranch: ws ? null : (branches.find(match.branch) ?? null),
+  };
+}
+
 /** One issue as `gh issue list --json` prints it. */
 type ListItem = {
   number: number;
@@ -104,6 +138,23 @@ async function listIssues(repo: string) {
   return JSON.parse(stdout) as ListItem[];
 }
 
+/** What coverage needs to know about one project: its workspaces and local branches. */
+async function coverageContext(paseo: PaseoApi, p: GitHubProject, workspaces?: Workspace[]) {
+  const [all, branches] = await Promise.all([workspaces ?? listWorkspaces(paseo), localBranches(p.project.root)]);
+  return { workspaces: all.filter((w) => w.projectId === p.project.id), branches };
+}
+
+function toIssues(items: ListItem[], branchPrefix: string, context: { workspaces: Workspace[]; branches: string[] }) {
+  return items.map(
+    (i): Issue => ({
+      number: i.number,
+      title: i.title,
+      url: i.url,
+      ...coverage(i.number, branchPrefix, context.workspaces, context.branches),
+    }),
+  );
+}
+
 /** This host's GitHub projects, for the project picker. */
 export async function projectList(paseo: PaseoApi) {
   const { projects, skipped } = await githubProjects(await listProjects(paseo));
@@ -121,7 +172,8 @@ export async function issueList(paseo: PaseoApi, { projectId }: { projectId: str
   const { projects } = await githubProjects(await listProjects(paseo));
   const p = projects.find((candidate) => candidate.project.id === projectId);
   if (!p) throw new Error("That project is no longer in Paseo, or no longer has a github.com remote");
-  return { issues: await listIssues(p.repo) };
+  const [items, context] = await Promise.all([listIssues(p.repo), coverageContext(paseo, p)]);
+  return { issues: toIssues(items, BRANCH_PREFIX, context) };
 }
 
 // A double press must not create two worktrees for one issue.
@@ -148,6 +200,11 @@ export async function createWorkspace(
     if (state !== "OPEN") throw new Error(`#${n} is ${state.toLowerCase()}`);
     const defaultBranch = repo.stdout.trim();
     if (!defaultBranch) throw new Error(`${target.repo} has no default branch`);
+
+    const own = (await listWorkspaces(paseo)).filter((w) => w.projectId === projectId);
+    const existing = coverage(n, BRANCH_PREFIX, own, await localBranches(project.root));
+    if (existing.workspace) throw new Error(`#${n} already has workspace “${existing.workspace.name}”`);
+    if (existing.orphanBranch) throw new Error(`#${n} already has local branch ${existing.orphanBranch}`);
 
     await run("git", ["-C", project.root, "fetch", target.remote, defaultBranch, "--quiet"]);
     const branch = branchName(BRANCH_PREFIX, n, title);

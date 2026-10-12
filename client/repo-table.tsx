@@ -18,7 +18,8 @@ export function RepoTable({
   onCreate,
   theme,
   layout,
-}: Pick<PluginScreenProps, "theme" | "layout"> & {
+  navigation,
+}: Pick<PluginScreenProps, "theme" | "layout" | "navigation"> & {
   project: RepoProject;
   /** The issue number being created, if any. */
   pendingNumber: number | null;
@@ -67,6 +68,7 @@ export function RepoTable({
           onCreate={() => onCreate(issue)}
           theme={theme}
           layout={layout}
+          navigation={navigation}
         />
       ))}
     </View>

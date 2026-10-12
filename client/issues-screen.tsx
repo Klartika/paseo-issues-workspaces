@@ -16,6 +16,7 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
 export function IssuesScreen({
   theme,
   layout,
+  navigation,
 }: PluginScreenProps) {
   const listProjects = useRpc(projectsRpc);
   const createWorkspace = useRpc(createWorkspaceRpc);
@@ -39,7 +40,10 @@ export function IssuesScreen({
     onError: (error, { issue }) => {
       toast.show(`#${issue.number}: ${message(error)}`, { variant: "error" });
     },
-    onSettled: () => setPending(null),
+    onSettled: () => {
+      setPending(null);
+      void queryClient.invalidateQueries({ queryKey: ISSUES_QUERY_KEY });
+    },
   });
 
   const s = useMemo(() => {
@@ -103,6 +107,7 @@ export function IssuesScreen({
           onCreate={(issue) => create.mutate({ project: selected, issue })}
           theme={theme}
           layout={layout}
+          navigation={navigation}
         />
       ) : null}
 
