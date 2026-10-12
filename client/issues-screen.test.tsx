@@ -262,6 +262,16 @@ describe("issues screen: rows", () => {
     expect(document.querySelectorAll('[data-icon="CircleDot"]').length).toBeGreaterThanOrEqual(2);
   });
 
+  it("lets a long title shrink and wrap instead of widening the page", async () => {
+    readySettings(prefs());
+    oneProject([issue(7, { title: "A very long issue title ".repeat(10) })]);
+    renderScreen({ compact: true });
+
+    const link = await screen.findByRole("link", { name: /Open issue 7 on GitHub/ });
+    // React Native items default to flexShrink 0, which kept the title on one ever-wider line.
+    expect(getComputedStyle(link).flexShrink).toBe("1");
+  });
+
   it("opens the issue on GitHub from its title", async () => {
     readySettings(prefs());
     oneProject([issue(7)]);
@@ -687,6 +697,42 @@ describe("issues screen: filter bar", () => {
     }
   });
 
+  it("uses a sheet instead of a dropdown on narrow layouts", async () => {
+    readySettings(prefs());
+    serveProjects([project("octo/repo")]);
+    serveOptions(options);
+    servePages({ "p-octo/repo": [issue(1)] });
+    renderScreen({ compact: true });
+
+    fireEvent.click(await screen.findByRole("button", { name: /^Labels/ }));
+
+    expect(screen.getByRole("dialog", { name: "Filter by label" })).toBeTruthy();
+  });
+
+  it("uses a sheet on native platforms, which cannot press a dropdown hanging below the header", async () => {
+    readySettings(prefs());
+    serveProjects([project("octo/repo")]);
+    serveOptions(options);
+    servePages({ "p-octo/repo": [issue(1)] });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <IssuesScreen
+          theme={theme}
+          layout={{ compact: false, platform: "ios" }}
+          host={{ id: "srv_here", label: "Laptop" }}
+          navigation={navigation}
+          params={{}}
+        />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /^Labels/ }));
+
+    expect(screen.getByRole("dialog", { name: "Filter by label" })).toBeTruthy();
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
   it("closes an open menu when the page changes", async () => {
     readySettings(prefs());
     serveProjects([project("octo/repo")]);
@@ -966,6 +1012,30 @@ describe("issues screen: creating a workspace", () => {
 
     const entry = within(screen.getByRole("menu")).getAllByRole("menuitemradio")[0];
     expect(paintsAbove(entry, screen.getByRole("button", { name: "Next page" }))).toBe(true);
+  });
+
+  it("uses a sheet on native platforms, which cannot press a dropdown hanging outside its row", async () => {
+    readySettings(prefs());
+    oneProject([issue(7)]);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <IssuesScreen
+          theme={theme}
+          layout={{ compact: true, platform: "ios" }}
+          host={{ id: "srv_here", label: "Laptop" }}
+          navigation={navigation}
+          params={{}}
+        />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "More ways to create a workspace for issue 7" }));
+    const sheet = screen.getByRole("dialog", { name: "Create a workspace for #7" });
+    fireEvent.click(within(sheet).getByRole("menuitemradio", { name: "Create and start an agent" }));
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("button", { name: "Create workspace and start an agent on issue 7" })).toBeTruthy();
   });
 
   it("names the default agent when none is chosen", async () => {

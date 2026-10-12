@@ -1,6 +1,6 @@
 import type { PluginScreenProps } from "@getpaseo/plugin/client";
 import { openExternalUrl } from "@getpaseo/plugin/client";
-import { Icon } from "@getpaseo/plugin/client/react-native";
+import { Icon, Modal } from "@getpaseo/plugin/client/react-native";
 import { useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View, type Role } from "react-native";
 import type { CreateAction, Density, Issue } from "../shared/issues";
@@ -89,6 +89,8 @@ export function IssueRow({
               accessibilityRole="link"
               accessibilityLabel={`Open issue ${issue.number} on GitHub: ${issue.title}`}
               onPress={() => void openExternalUrl(issue.url)}
+              // Shrink to the line so a long title wraps instead of widening the row.
+              style={{ flexShrink: 1 }}
             >
               <Text style={s.title}>{issue.title}</Text>
             </Pressable>
@@ -115,6 +117,7 @@ export function IssueRow({
           agentLabel={agentLabel}
           menuOpen={menuOpen}
           onMenuOpenChange={onMenuOpenChange ?? (() => {})}
+          sheet={layout.platform !== "web"}
           onOpen={
             issue.workspace && navigation
               ? () =>
@@ -181,6 +184,7 @@ function IssueAction({
   agentLabel,
   menuOpen,
   onMenuOpenChange,
+  sheet,
   onOpen,
 }: {
   issue: Issue;
@@ -192,6 +196,8 @@ function IssueAction({
   agentLabel: string;
   menuOpen: boolean;
   onMenuOpenChange: (open: boolean) => void;
+  /** Native platforms can't press a dropdown hanging outside its row, so they get a sheet. */
+  sheet: boolean;
   onOpen?: () => void;
 }) {
   // As on GitHub, the menu picks what the button does; the button does it.
@@ -294,7 +300,7 @@ function IssueAction({
           <Icon name="ChevronDown" size={16} color={theme.colors.foregroundMuted} />
         </Pressable>
       </View>
-      {menuOpen ? (
+      {menuOpen && !sheet ? (
         <View
           accessibilityRole="menu"
           accessibilityLabel={title}
@@ -320,6 +326,11 @@ function IssueAction({
         >
           {items}
         </View>
+      ) : null}
+      {sheet ? (
+        <Modal title={title} open={menuOpen} onOpenChange={onMenuOpenChange}>
+          <Modal.Content contentContainerStyle={{ padding: 8, gap: 2 }}>{items}</Modal.Content>
+        </Modal>
       ) : null}
     </View>
   );

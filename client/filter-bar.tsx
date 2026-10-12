@@ -1,6 +1,6 @@
 import type { PluginScreenProps } from "@getpaseo/plugin/client";
 import { useRpc } from "@getpaseo/plugin/client";
-import { Icon, TextInput } from "@getpaseo/plugin/client/react-native";
+import { Icon, Modal, TextInput } from "@getpaseo/plugin/client/react-native";
 import { useQuery } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import { Image, Pressable, ScrollView, Text, View } from "react-native";
@@ -230,7 +230,11 @@ export function FilterControls({
           loading={options.isPending}
           error={options.isError ? String(options.error) : null}
           {...items(current.id)}
+          // Native platforms deliver no touches outside a parent's bounds, so a dropdown hanging
+          // below the header could not be pressed there: they get the sheet.
+          compact={layout.compact || layout.platform !== "web"}
           theme={theme}
+          onClose={() => onOpenMenu(null)}
           // Right-aligned under its button, like GitHub's dropdowns at the right of a table header.
           right={anchor ? Math.max(0, width - (anchor.x + anchor.width)) : 0}
         />
@@ -243,7 +247,7 @@ function Dot({ color }: { color: string }) {
   return <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: color }} />;
 }
 
-/** A filter dropdown, anchored under the bar. */
+/** A filter dropdown: anchored under the bar on wide layouts, a sheet on narrow ones. */
 function FilterMenu({
   title,
   placeholder,
@@ -252,7 +256,9 @@ function FilterMenu({
   none,
   list,
   custom,
+  compact,
   theme,
+  onClose,
   right,
 }: {
   title: string;
@@ -262,7 +268,9 @@ function FilterMenu({
   none?: Item;
   list: Item[];
   custom?: (text: string) => Item | null;
+  compact: boolean;
   theme: Theme;
+  onClose: () => void;
   right: number;
 }) {
   const [text, setText] = useState("");
@@ -294,7 +302,7 @@ function FilterMenu({
       />
       {loading ? <Text style={{ color: theme.colors.foregroundMuted, padding: 12 }}>Loading…</Text> : null}
       {error ? <Text style={{ color: theme.colors.statusDanger, padding: 12 }}>{error}</Text> : null}
-      <ScrollView style={{ maxHeight: 320 }}>
+      <ScrollView style={{ maxHeight: compact ? undefined : 320 }}>
         {none && !needle ? <MenuRow item={none} theme={theme} /> : null}
         {shown.map((item) => (
           <MenuRow key={item.key} item={item} theme={theme} />
@@ -307,6 +315,13 @@ function FilterMenu({
     </View>
   );
 
+  if (compact) {
+    return (
+      <Modal title={title} open onOpenChange={(open) => !open && onClose()}>
+        <Modal.Content contentContainerStyle={{ padding: 0, gap: 0 }}>{body}</Modal.Content>
+      </Modal>
+    );
+  }
   return (
     <View
       accessibilityRole="menu"

@@ -72,6 +72,11 @@ export const reactNativeModule = {
     show: (message: string, options?: { variant?: string }) => host.toasts.push({ message, variant: options?.variant }),
     error: (message: string) => host.toasts.push({ message, variant: "error" }),
   }),
+  Modal: Object.assign(
+    ({ open, title, children }: { open: boolean; title: string; children: ReactNode }) =>
+      open ? createElement("div", { role: "dialog", "aria-label": title }, children) : null,
+    { Content: ({ children }: { children: ReactNode }) => createElement("div", null, children) },
+  ),
 };
 
 /** Settings components as plain form controls, labelled for queries. */
