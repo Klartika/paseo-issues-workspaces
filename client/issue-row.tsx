@@ -3,15 +3,19 @@ import { openExternalUrl } from "@getpaseo/plugin/client";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useMemo } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
-import type { Issue } from "../shared/issues";
+import type { Density, Issue } from "../shared/issues";
 import { isDarkTheme, labelColors, openIssueColor, timeAgo } from "./github-style";
 import type { RemoteWorkspace } from "./issue-list";
 
 type Props = Pick<PluginScreenProps, "theme" | "layout" | "navigation">;
 
-/** One issue, laid out like a row of GitHub's issue list. */
+/**
+ * One issue, laid out like a row of GitHub's issue list. Comfortable puts the number, age
+ * and author on a second line; compact keeps them on the title line.
+ */
 export function IssueRow({
   issue,
+  density,
   elsewhere,
   first,
   pending,
@@ -22,6 +26,7 @@ export function IssueRow({
   navigation,
 }: Props & {
   issue: Issue;
+  density: Density;
   /** Workspaces for this issue on other hosts. */
   elsewhere: RemoteWorkspace[];
   /** The first row in its box draws no divider above it. */
@@ -31,31 +36,32 @@ export function IssueRow({
   onCreate: () => void;
 }) {
   const dark = isDarkTheme(theme);
+  const dense = density === "compact";
   const s = useMemo(
     () => ({
       row: {
         flexDirection: "row" as const,
         alignItems: "flex-start" as const,
         gap: 8,
-        paddingVertical: 10,
+        paddingVertical: dense ? 5 : 10,
         paddingHorizontal: layout.compact ? 12 : 16,
         borderTopWidth: first ? 0 : 1,
         borderTopColor: theme.colors.border,
       },
-      icon: { paddingTop: 3 },
+      icon: { paddingTop: dense ? 2 : 3 },
       body: {
         flex: 1,
         flexDirection: (layout.compact ? "column" : "row") as "column" | "row",
         alignItems: (layout.compact ? "stretch" : "center") as "stretch" | "center",
-        gap: layout.compact ? 8 : 16,
+        gap: layout.compact ? (dense ? 4 : 8) : 16,
       },
-      text: { flex: layout.compact ? undefined : 1, gap: 4 },
+      text: { flex: layout.compact ? undefined : 1, gap: dense ? 2 : 4 },
       titleLine: { flexDirection: "row" as const, flexWrap: "wrap" as const, alignItems: "center" as const, gap: 6 },
-      title: { color: theme.colors.foreground, fontSize: 16, fontWeight: "600" as const },
+      title: { color: theme.colors.foreground, fontSize: dense ? 14 : 16, fontWeight: "600" as const },
       meta: { color: theme.colors.foregroundMuted, fontSize: 12 },
       link: { color: theme.colors.accent, fontSize: 12 },
     }),
-    [theme, layout.compact, first],
+    [theme, layout.compact, first, dense],
   );
 
   const opened = `#${issue.number} opened ${timeAgo(issue.createdAt)}${issue.author ? ` by ${issue.author}` : ""}`;
@@ -76,10 +82,11 @@ export function IssueRow({
               <Text style={s.title}>{issue.title}</Text>
             </Pressable>
             {issue.labels.map((label) => (
-              <IssueLabel key={label.name} name={label.name} color={label.color} dark={dark} />
+              <IssueLabel key={label.name} name={label.name} color={label.color} dark={dark} dense={dense} />
             ))}
+            {dense ? <Text style={s.meta}>{opened}</Text> : null}
           </View>
-          <Text style={s.meta}>{opened}</Text>
+          {dense ? null : <Text style={s.meta}>{opened}</Text>}
           {issue.orphanBranch ? (
             <Text style={s.meta}>Local branch {issue.orphanBranch} exists without a workspace</Text>
           ) : null}
@@ -91,6 +98,7 @@ export function IssueRow({
           issue={issue}
           pending={pending}
           busy={busy}
+          dense={dense}
           theme={theme}
           onCreate={onCreate}
           onOpen={
@@ -102,7 +110,7 @@ export function IssueRow({
   );
 }
 
-function IssueLabel({ name, color, dark }: { name: string; color: string; dark: boolean }) {
+function IssueLabel({ name, color, dark, dense }: { name: string; color: string; dark: boolean; dense: boolean }) {
   const c = labelColors(color, dark);
   return (
     <View
@@ -115,7 +123,7 @@ function IssueLabel({ name, color, dark }: { name: string; color: string; dark: 
         backgroundColor: c.backgroundColor,
       }}
     >
-      <Text style={{ color: c.color, fontSize: 12, fontWeight: "500", lineHeight: 18 }}>{name}</Text>
+      <Text style={{ color: c.color, fontSize: 12, fontWeight: "500", lineHeight: dense ? 16 : 18 }}>{name}</Text>
     </View>
   );
 }
@@ -146,6 +154,7 @@ function IssueAction({
   issue,
   pending,
   busy,
+  dense,
   theme,
   onCreate,
   onOpen,
@@ -153,11 +162,12 @@ function IssueAction({
   issue: Issue;
   pending: boolean;
   busy: boolean;
+  dense: boolean;
   theme: PluginScreenProps["theme"];
   onCreate: () => void;
   onOpen?: () => void;
 }) {
-  const pad = { paddingVertical: 6, paddingHorizontal: 12 };
+  const pad = { paddingVertical: dense ? 3 : 6, paddingHorizontal: dense ? 10 : 12 };
   const shell = {
     flexDirection: "row" as const,
     alignItems: "stretch" as const,

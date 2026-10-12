@@ -2,7 +2,9 @@ GitHub Issues lists a project's open GitHub issues, laid out like GitHub's issue
 
 ## The screen
 
-When you have more than one GitHub project, a row of tabs at the top picks the one to show. Below it are that project's open issues, newest first, up to 100 of them.
+When you have more than one GitHub project, a row of tabs at the top picks the one to show. Below it are the search box, a switch between a comfortable and a compact density, and that project's issues, newest first, up to 100 of them.
+
+The search box takes GitHub's issue search syntax and starts with `assignee:@me`. `is:issue state:open` is always part of the search, so only open issues appear. Try `label:bug`, `author:octocat`, or `no:assignee`; clearing the box lists every open issue.
 
 Each issue shows GitHub's label colors and a **Create workspace** button, or **Open workspace** when a workspace already covers it. Tapping an issue's title opens it on GitHub.
 
@@ -24,10 +26,10 @@ Open the settings from **Settings → Plugins**:
 
 - **Branch prefix**: the start of new branch names. Defaults to `issue/`.
 
-The selected project is saved with this setting. Settings are stored on each host and shared by every client connected to it.
+The selected project, search and density are saved with this setting. Settings are stored on each host and shared by every client connected to it.
 
 ## Access and limits
 
 The plugin runs `gh` and `git` on the daemon host as the signed-in user. It reads issues from GitHub and never writes to GitHub. Creating a workspace runs `git fetch` for the default branch and creates a local branch and worktree.
 
-Only github.com is supported; GitHub Enterprise remotes are skipped. The list shows the newest 100 open issues.
+Only github.com is supported; GitHub Enterprise remotes are skipped. The list shows at most 100 issues; narrow the search to see the rest.

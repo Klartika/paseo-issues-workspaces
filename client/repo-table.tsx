@@ -3,7 +3,7 @@ import { useRpc } from "@getpaseo/plugin/client";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
-import { issuesRpc, type Issue, type RepoProject } from "../shared/issues";
+import { issuesRpc, type Density, type Issue, type RepoProject } from "../shared/issues";
 import { findRemoteWorkspaces, type RemoteWorkspace } from "./issue-list";
 import { IssueRow } from "./issue-row";
 
@@ -14,6 +14,8 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
 /** The selected project's issues as a GitHub-style table, newest first. */
 export function RepoTable({
   project,
+  query,
+  density,
   branchPrefix,
   otherHostWorkspaces,
   pendingNumber,
@@ -24,6 +26,8 @@ export function RepoTable({
   navigation,
 }: Pick<PluginScreenProps, "theme" | "layout" | "navigation"> & {
   project: RepoProject;
+  query: string;
+  density: Density;
   branchPrefix: string;
   /** Every other host's workspaces, linked from the issues they cover. */
   otherHostWorkspaces: RemoteWorkspace[] | undefined;
@@ -34,8 +38,8 @@ export function RepoTable({
 }) {
   const fetchIssues = useRpc(issuesRpc);
   const result = useQuery({
-    queryKey: [...ISSUES_QUERY_KEY, project.projectId],
-    queryFn: () => fetchIssues({ projectId: project.projectId }),
+    queryKey: [...ISSUES_QUERY_KEY, project.projectId, query],
+    queryFn: () => fetchIssues({ projectId: project.projectId, query }),
   });
 
   const issues = result.data?.issues ?? [];
@@ -63,11 +67,12 @@ export function RepoTable({
           <ActivityIndicator color={theme.colors.foregroundMuted} />
         </View>
       ) : null}
-      {result.isSuccess && !issues.length ? <Text style={s.empty}>No open issues.</Text> : null}
+      {result.isSuccess && !issues.length ? <Text style={s.empty}>No results matched your search.</Text> : null}
       {issues.map((issue, index) => (
         <IssueRow
           key={issue.number}
           issue={issue}
+          density={density}
           elsewhere={
             issue.workspace ? [] : findRemoteWorkspaces(otherHostWorkspaces, project.repo, issue.number, branchPrefix)
           }

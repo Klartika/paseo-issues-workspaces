@@ -7,17 +7,21 @@ import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import {
   createWorkspaceRpc,
   DEFAULT_PREFERENCES,
+  DEFAULT_QUERY,
   effectivePreferences,
   preferences,
   projectsRpc,
+  type Density,
   type Issue,
   type Preferences,
   type RepoProject,
 } from "../shared/issues";
+import { DensityToggle } from "./density-toggle";
 import { pickProject, showProjectSelector } from "./issue-list";
 import { OTHER_HOSTS_QUERY_KEY, useOtherHosts } from "./other-hosts";
 import { ProjectSelector } from "./project-selector";
 import { ISSUES_QUERY_KEY, RepoTable } from "./repo-table";
+import { SearchBar } from "./search-bar";
 
 const PROJECTS_QUERY_KEY = ["issues.projects"];
 
@@ -38,7 +42,11 @@ export function IssuesScreen({
   const settings = useSettings(preferences);
   const saved = settings.status === "ready" ? settings.values : null;
   // Local choices apply at once; saved values carry them across sessions and clients.
+  const [queryChoice, setQueryChoice] = useState<string | null>(null);
+  const [densityChoice, setDensityChoice] = useState<Density | null>(null);
   const [repoChoice, setRepoChoice] = useState<string | null>(null);
+  const query = queryChoice ?? saved?.searchQuery ?? DEFAULT_QUERY;
+  const density = densityChoice ?? saved?.density ?? "comfortable";
   const prefs = effectivePreferences(saved ?? DEFAULT_PREFERENCES);
 
   const projects = useQuery({ queryKey: PROJECTS_QUERY_KEY, queryFn: () => listProjects({}) });
@@ -50,6 +58,10 @@ export function IssuesScreen({
   async function savePreferences(patch: Partial<Preferences>) {
     if (settings.status !== "ready") return false;
     return settings.save({ ...settings.values, ...patch }, settings.revision);
+  }
+  function search(next: string) {
+    setQueryChoice(next);
+    void savePreferences({ searchQuery: next });
   }
   function selectProject(option: RepoProject) {
     setRepoChoice(option.repo.toLowerCase());
@@ -78,7 +90,7 @@ export function IssuesScreen({
     return {
       screen: { flex: 1, backgroundColor: theme.colors.surface0 },
       content: { padding: pad, gap: 12 },
-      toolbar: { flexDirection: "row" as const, justifyContent: "flex-end" as const },
+      searchRow: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8 },
       muted: { color: theme.colors.foregroundMuted, fontSize: 13 },
       error: { color: theme.colors.statusDanger },
       iconButton: { padding: 8, borderRadius: 6 },
@@ -98,7 +110,18 @@ export function IssuesScreen({
         />
       ) : null}
 
-      <View style={s.toolbar}>
+      <View style={s.searchRow}>
+        <View style={{ flex: 1 }}>
+          <SearchBar query={query} onSearch={search} theme={theme} />
+        </View>
+        <DensityToggle
+          density={density}
+          onChange={(next) => {
+            setDensityChoice(next);
+            void savePreferences({ density: next });
+          }}
+          theme={theme}
+        />
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Refresh issues"
@@ -130,6 +153,8 @@ export function IssuesScreen({
       {selected ? (
         <RepoTable
           project={selected}
+          query={query}
+          density={density}
           branchPrefix={prefs.branchPrefix}
           otherHostWorkspaces={others.data?.workspaces}
           pendingNumber={pending}

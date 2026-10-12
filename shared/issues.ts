@@ -1,6 +1,12 @@
 import { defineRpc, defineSettings } from "@getpaseo/plugin";
 import { z } from "zod";
 
+/** What the search box starts with. `is:issue state:open` is always added and never shown. */
+export const DEFAULT_QUERY = "assignee:@me";
+
+export const DENSITIES = ["comfortable", "compact"] as const;
+export type Density = (typeof DENSITIES)[number];
+
 export const preferences = defineSettings({
   id: "preferences",
   scope: "host",
@@ -10,6 +16,9 @@ export const preferences = defineSettings({
     branchPrefix: z.string().default("issue/"),
     /** Lowercased `owner/repo` of the project picked at the top of the screen; empty picks the first. */
     selectedRepo: z.string().default(""),
+    /** The last search, in GitHub's issue search syntax. */
+    searchQuery: z.string().default(DEFAULT_QUERY),
+    density: z.enum(DENSITIES).default("comfortable"),
   }),
 });
 export type Preferences = z.infer<typeof preferences.schema>;
@@ -31,6 +40,8 @@ export function effectivePreferences(values: Preferences): Preferences {
   return {
     branchPrefix: branchPrefixError(values.branchPrefix) ? DEFAULT_PREFERENCES.branchPrefix : values.branchPrefix,
     selectedRepo: values.selectedRepo,
+    searchQuery: values.searchQuery,
+    density: values.density,
   };
 }
 
@@ -114,7 +125,11 @@ export const projectsRpc = defineRpc({
 /** Open issues in one repository, newest first, up to 100. */
 export const issuesRpc = defineRpc({
   name: "issues.list",
-  input: z.object({ projectId: z.string() }),
+  input: z.object({
+    projectId: z.string(),
+    /** GitHub's issue search syntax; `is:issue state:open` is implied. */
+    query: z.string().max(1000),
+  }),
   output: z.object({ issues: z.array(issue) }),
 });
 

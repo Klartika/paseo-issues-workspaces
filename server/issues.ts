@@ -185,10 +185,11 @@ type ListItem = {
 
 const MAX_ISSUES = 100;
 
-/** Up to 100 open issues in `repo`, newest first. */
-async function listIssues(repo: string) {
+/** Up to 100 open issues in `repo` matching `query`, newest first. */
+async function listIssues(repo: string, query: string) {
   const { stdout } = await gh([
     "issue", "list", "--repo", repo, "--state", "open",
+    "--search", `${query} sort:created-desc`.trim(),
     "--limit", String(MAX_ISSUES),
     "--json", "number,title,url,labels,author,createdAt",
   ]);
@@ -216,6 +217,8 @@ function toIssues(items: ListItem[], branchPrefix: string, context: { workspaces
   );
 }
 
+const normalizeQuery = (query: string) => query.replace(/\s+/g, " ").trim();
+
 /** This host's GitHub projects, one per repository, for the project picker. */
 export async function projectList(paseo: PaseoApi) {
   const { repos, skipped } = await githubRepos(await listProjects(paseo));
@@ -229,12 +232,16 @@ export async function projectList(paseo: PaseoApi) {
   return { repos: choices, skipped };
 }
 
-/** One repository's open issues. `projectId` names one of this host's projects. */
-export async function issueList(paseo: PaseoApi, prefs: Preferences, { projectId }: { projectId: string }) {
+/** One repository's open issues matching `query`. `projectId` names one of this host's projects. */
+export async function issueList(
+  paseo: PaseoApi,
+  prefs: Preferences,
+  { projectId, query }: { projectId: string; query: string },
+) {
   const { repos } = await githubRepos(await listProjects(paseo));
   const r = [...repos.values()].find((candidate) => candidate.projectIds.has(projectId));
   if (!r) throw new Error("That project is no longer in Paseo, or no longer has a github.com remote");
-  const [items, context] = await Promise.all([listIssues(r.repo), coverageContext(paseo, r)]);
+  const [items, context] = await Promise.all([listIssues(r.repo, normalizeQuery(query)), coverageContext(paseo, r)]);
   return { issues: toIssues(items, prefs.branchPrefix, context) };
 }
 
