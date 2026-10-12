@@ -1,5 +1,5 @@
 import { execCommand, type PluginHandlerContext } from "@getpaseo/plugin/server";
-import { BRANCH_PREFIX, branchName, issueMatcher, parseGitHubRemote, type Issue } from "../shared/issues";
+import { branchName, issueMatcher, parseGitHubRemote, type Issue, type Preferences } from "../shared/issues";
 
 type PaseoApi = PluginHandlerContext["paseo"];
 
@@ -168,12 +168,12 @@ export async function projectList(paseo: PaseoApi) {
 }
 
 /** One project's open issues. `projectId` names one of this host's projects. */
-export async function issueList(paseo: PaseoApi, { projectId }: { projectId: string }) {
+export async function issueList(paseo: PaseoApi, prefs: Preferences, { projectId }: { projectId: string }) {
   const { projects } = await githubProjects(await listProjects(paseo));
   const p = projects.find((candidate) => candidate.project.id === projectId);
   if (!p) throw new Error("That project is no longer in Paseo, or no longer has a github.com remote");
   const [items, context] = await Promise.all([listIssues(p.repo), coverageContext(paseo, p)]);
-  return { issues: toIssues(items, BRANCH_PREFIX, context) };
+  return { issues: toIssues(items, prefs.branchPrefix, context) };
 }
 
 // A double press must not create two worktrees for one issue.
@@ -181,6 +181,7 @@ const inFlight = new Set<string>();
 
 export async function createWorkspace(
   paseo: PaseoApi,
+  prefs: Preferences,
   { projectId, number: n }: { projectId: string; number: number },
 ) {
   const key = `${projectId}#${n}`;
@@ -202,12 +203,12 @@ export async function createWorkspace(
     if (!defaultBranch) throw new Error(`${target.repo} has no default branch`);
 
     const own = (await listWorkspaces(paseo)).filter((w) => w.projectId === projectId);
-    const existing = coverage(n, BRANCH_PREFIX, own, await localBranches(project.root));
+    const existing = coverage(n, prefs.branchPrefix, own, await localBranches(project.root));
     if (existing.workspace) throw new Error(`#${n} already has workspace “${existing.workspace.name}”`);
     if (existing.orphanBranch) throw new Error(`#${n} already has local branch ${existing.orphanBranch}`);
 
     await run("git", ["-C", project.root, "fetch", target.remote, defaultBranch, "--quiet"]);
-    const branch = branchName(BRANCH_PREFIX, n, title);
+    const branch = branchName(prefs.branchPrefix, n, title);
     const workspace = await paseo.workspaces.create({
       title: `#${n} ${title}`,
       source: {

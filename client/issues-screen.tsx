@@ -1,11 +1,18 @@
 import type { PluginScreenProps } from "@getpaseo/plugin/client";
-import { useRpc } from "@getpaseo/plugin/client";
+import { useRpc, useSettings } from "@getpaseo/plugin/client";
 import { Icon, ScrollView, useToast } from "@getpaseo/plugin/client/react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
-import { createWorkspaceRpc, projectsRpc, type Issue, type RepoProject } from "../shared/issues";
-import { showProjectSelector } from "./issue-list";
+import {
+  createWorkspaceRpc,
+  preferences,
+  projectsRpc,
+  type Issue,
+  type Preferences,
+  type RepoProject,
+} from "../shared/issues";
+import { pickProject, showProjectSelector } from "./issue-list";
 import { ProjectSelector } from "./project-selector";
 import { ISSUES_QUERY_KEY, RepoTable } from "./repo-table";
 
@@ -23,12 +30,25 @@ export function IssuesScreen({
   const queryClient = useQueryClient();
   const toast = useToast();
   const [pending, setPending] = useState<number | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  const settings = useSettings(preferences);
+  const saved = settings.status === "ready" ? settings.values : null;
+  // Local choices apply at once; saved values carry them across sessions and clients.
+  const [repoChoice, setRepoChoice] = useState<string | null>(null);
 
   const projects = useQuery({ queryKey: PROJECTS_QUERY_KEY, queryFn: () => listProjects({}) });
   const options = projects.data?.repos ?? [];
-  const selected = options.find((o) => o.projectId === selectedId) ?? options[0] ?? null;
+  const selected = pickProject(options, repoChoice ?? saved?.selectedRepo ?? "");
   const showTabs = showProjectSelector(options);
+
+  async function savePreferences(patch: Partial<Preferences>) {
+    if (settings.status !== "ready") return false;
+    return settings.save({ ...settings.values, ...patch }, settings.revision);
+  }
+  function selectProject(option: RepoProject) {
+    setRepoChoice(option.repo.toLowerCase());
+    void savePreferences({ selectedRepo: option.repo.toLowerCase() });
+  }
 
   const create = useMutation({
     mutationFn: ({ project, issue }: { project: RepoProject; issue: Issue }) =>
@@ -66,7 +86,7 @@ export function IssuesScreen({
         <ProjectSelector
           options={options}
           selectedId={selected?.projectId ?? null}
-          onSelect={(option) => setSelectedId(option.projectId)}
+          onSelect={selectProject}
           theme={theme}
         />
       ) : null}

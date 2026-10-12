@@ -12,11 +12,19 @@ The plugin looks at every git project on the host and reads its `origin` remote.
 
 A new workspace is a worktree titled `#<number> <issue title>`, on a new branch `issue/<number>-<slug>` taken from a freshly fetched copy of the repository's default branch.
 
-An issue counts as covered when a workspace in the project has a title starting with `#<number>`, or a branch that starts with `issue/<number>-`, or contains `<number>-` after a slash. When a local branch exists for an issue but no workspace does, for example after archiving one, the plugin shows the branch and does not create a second one.
+An issue counts as covered when a workspace in the project has a title starting with `#<number>`, or a branch that starts with the branch prefix and the number, or contains `<number>-` after a slash. When a local branch exists for an issue but no workspace does, for example after archiving one, the plugin shows the branch and does not create a second one.
 
 ## Setup
 
 The daemon host needs the GitHub CLI (`gh`) installed and signed in with `gh auth login`, using an account that can read the repositories. Requires Paseo 0.11.2 or later.
+
+## Settings
+
+Open the settings from **Settings → Plugins**:
+
+- **Branch prefix**: the start of new branch names. Defaults to `issue/`.
+
+The selected project is saved with this setting. Settings are stored on each host and shared by every client connected to it.
 
 ## Access and limits
 

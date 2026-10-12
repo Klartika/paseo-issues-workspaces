@@ -1,8 +1,38 @@
-import { defineRpc } from "@getpaseo/plugin";
+import { defineRpc, defineSettings } from "@getpaseo/plugin";
 import { z } from "zod";
 
-/** New branches are named `<prefix><number>-<slug>`. */
-export const BRANCH_PREFIX = "issue/";
+export const preferences = defineSettings({
+  id: "preferences",
+  scope: "host",
+  version: 1,
+  schema: z.object({
+    /** New branches are named `<prefix><number>-<slug>`. */
+    branchPrefix: z.string().default("issue/"),
+    /** Lowercased `owner/repo` of the project picked at the top of the screen; empty picks the first. */
+    selectedRepo: z.string().default(""),
+  }),
+});
+export type Preferences = z.infer<typeof preferences.schema>;
+export const DEFAULT_PREFERENCES: Preferences = preferences.schema.parse({});
+
+export function branchPrefixError(prefix: string): string | null {
+  if (!prefix) return null;
+  if (!/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(prefix)) {
+    return "Use letters, digits, '.', '_', '-' and '/', starting with a letter or digit";
+  }
+  if (prefix.includes("..") || prefix.includes("//") || prefix.includes("/.")) {
+    return "Cannot contain '..', '//' or '/.'";
+  }
+  return null;
+}
+
+/** Settings that fail validation fall back to defaults rather than breaking the screen. */
+export function effectivePreferences(values: Preferences): Preferences {
+  return {
+    branchPrefix: branchPrefixError(values.branchPrefix) ? DEFAULT_PREFERENCES.branchPrefix : values.branchPrefix,
+    selectedRepo: values.selectedRepo,
+  };
+}
 
 const SLUG_LENGTH = 40;
 
