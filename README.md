@@ -12,7 +12,7 @@ A [Paseo](https://paseo.sh) plugin that shows a project's open GitHub issues, la
 - **Create workspace** creates a worktree on a new `issue/<number>-<slug>` branch from a freshly fetched default branch, titled `#<number> <title>`.
 - **Create and start an agent** also starts an agent in the new workspace with a prompt you can edit. Pick it from the arrow beside the button, as on GitHub.
 - **Knows what you already started.** An issue with a workspace shows **Open workspace** instead, including workspaces on other connected hosts. A leftover local branch blocks a duplicate.
-- **Linked pull requests.** A dedicated column shows one PR with review and merge status, prioritizing PRs that need attention. Select the PR number to open GitHub, or the status / additional-PR count to see every linked PR in a popover (a sheet on mobile). Extra PRs do not make the issue row taller. Draft, merged, and closed PRs are identified too.
+- **Linked pull requests.** A dedicated column shows one PR with review and merge status, prioritizing PRs that need attention. Select the PR number to open GitHub, or the status / additional-PR count to see every linked PR in a popover (a sheet on mobile). Extra PRs do not make the issue row taller. Draft, merged, and closed PRs are identified too, as are PRs waiting in a merge queue.
 - **Works across hosts.** Projects that only another connected host has get their own tabs, and their workspaces are created on that host.
 
 ## Requirements

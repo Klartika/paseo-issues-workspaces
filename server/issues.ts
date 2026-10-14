@@ -276,7 +276,7 @@ export async function pullRequests(input: { repo: string; numbers: number[] }) {
   while (pending.length) {
     const fields = pending.map(({ number, after }) => `i${number}: issue(number: ${number}) {
       closedByPullRequestsReferences(first: 100, includeClosedPrs: true, after: ${JSON.stringify(after)}) {
-        nodes { number title url state isDraft reviewDecision mergeable mergeStateStatus }
+        nodes { number title url state isDraft reviewDecision mergeable mergeStateStatus isInMergeQueue }
         pageInfo { hasNextPage endCursor }
       }
     }`);

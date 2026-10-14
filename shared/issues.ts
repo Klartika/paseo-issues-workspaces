@@ -179,6 +179,7 @@ const pullRequest = z.object({
   reviewDecision: z.string().nullable(),
   mergeable: z.string(),
   mergeStateStatus: z.string(),
+  isInMergeQueue: z.boolean(),
 });
 export type PullRequest = z.infer<typeof pullRequest>;
 

@@ -185,6 +185,7 @@ const pullRequest = (overrides: Partial<PullRequest> = {}): PullRequest => ({
   reviewDecision: "APPROVED",
   mergeable: "MERGEABLE",
   mergeStateStatus: "CLEAN",
+  isInMergeQueue: false,
   ...overrides,
 });
 
@@ -222,6 +223,7 @@ describe("issues screen: pull requests", () => {
     [{ mergeStateStatus: "BEHIND" }, "Approved", "Branch out of date"],
     [{ mergeStateStatus: "UNSTABLE" }, "Approved", "Checks not passing"],
     [{ mergeStateStatus: "FUTURE_STATE" }, "Approved", "Mergeability unknown"],
+    [{ isInMergeQueue: true }, "Approved", "Queued to merge"],
   ] as [Partial<PullRequest>, string, string][])("renders review and merge states: %j", async (overrides, review, merge) => {
     readySettings(prefs());
     oneProject([issue(1)]);

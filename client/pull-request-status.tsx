@@ -16,6 +16,7 @@ function reviewStatus(pr: PullRequest): Status {
 
 function mergeStatus(pr: PullRequest): Status {
   if (pr.isDraft) return { label: "Draft", tone: "foregroundMuted" };
+  if (pr.isInMergeQueue) return { label: "Queued to merge", tone: "statusSuccess" };
   if (pr.mergeable === "CONFLICTING" || pr.mergeStateStatus === "DIRTY") {
     return { label: "Merge conflicts", tone: "statusDanger" };
   }
