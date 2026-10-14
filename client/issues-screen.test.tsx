@@ -173,6 +173,7 @@ beforeEach(() => {
   resetHost();
   host.rpcs.set("issues.pull-requests", async () => ({ pullRequests: {} }));
   navigation.openWorkspace.mockClear();
+  navigation.openAgent.mockClear();
 });
 afterEach(cleanup);
 
@@ -1178,16 +1179,17 @@ describe("issues screen: themes", () => {
 // --- Creating -----------------------------------------------------------------------------------
 
 describe("issues screen: creating a workspace", () => {
-  it("creates a workspace from the main button", async () => {
+  it.each([false, true])("creates and opens a workspace from the main button (compact: %s)", async (compact) => {
     readySettings(prefs());
     oneProject([issue(7)]);
     const requests = serveCreate();
-    renderScreen();
+    renderScreen({ compact });
 
     fireEvent.click(await screen.findByRole("button", { name: "Create workspace for issue 7" }));
 
     await waitFor(() => expect(requests).toEqual([{ projectId: "p-octo/repo", number: 7, action: "create" }]));
     await waitFor(() => expect(host.toasts).toContainEqual({ message: "Created workspace for #7", variant: "success" }));
+    await waitFor(() => expect(navigation.openWorkspace).toHaveBeenCalledExactlyOnceWith({ workspaceId: "wks_new" }));
   });
 
   it("opens a dropdown under the arrow with the current choice checked, like GitHub's split buttons", async () => {
@@ -1233,6 +1235,8 @@ describe("issues screen: creating a workspace", () => {
         variant: "success",
       }),
     );
+    await waitFor(() => expect(navigation.openWorkspace).toHaveBeenCalledExactlyOnceWith({ workspaceId: "wks_new" }));
+    expect(navigation.openAgent).not.toHaveBeenCalled();
   });
 
   it("keeps each issue's choice to itself", async () => {
@@ -1321,6 +1325,7 @@ describe("issues screen: creating a workspace", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Create workspace for issue 7" }));
     expect(await screen.findByText("Creating…")).toBeTruthy();
+    expect(navigation.openWorkspace).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Create workspace for issue 8" }).getAttribute("aria-disabled")).toBe(
       "true",
     );
@@ -1333,6 +1338,7 @@ describe("issues screen: creating a workspace", () => {
     expect(
       screen.getByRole("button", { name: "Create workspace for issue 8" }).getAttribute("aria-disabled"),
     ).not.toBe("true");
+    expect(navigation.openWorkspace).not.toHaveBeenCalled();
   });
 
   it("refreshes the issues after creating", async () => {
@@ -1448,6 +1454,9 @@ describe("issues screen: projects on other hosts", () => {
     await waitFor(() =>
       expect(host.toasts).toContainEqual({ message: "Created workspace for #9 on Build box", variant: "success" }),
     );
+    await waitFor(() => expect(navigation.openWorkspace).toHaveBeenCalledExactlyOnceWith({
+      workspaceId: "wks_on_srv_box", serverId: "srv_box",
+    }));
   });
 
   it("names the other host's default agent in the fix option", async () => {

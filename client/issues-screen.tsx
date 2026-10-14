@@ -149,6 +149,11 @@ export function IssuesScreen({
           : `Created workspace for #${issue.number}${where}`,
         { variant: "success" },
       );
+      navigation?.openWorkspace(
+        project.remote
+          ? { workspaceId: result.workspaceId, serverId: project.remote.serverId }
+          : { workspaceId: result.workspaceId },
+      );
     },
     onError: (error, { issue }) => {
       toast.show(`#${issue.number}: ${message(error)}`, { variant: "error" });
