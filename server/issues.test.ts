@@ -203,6 +203,7 @@ describe("pullRequests", () => {
   const pr = (number: number, overrides: Partial<PullRequest> = {}): PullRequest => ({
     number, title: `PR ${number}`, url: `https://github.com/octo/repo/pull/${number}`,
     state: "OPEN", isDraft: false, reviewDecision: "APPROVED", mergeable: "MERGEABLE", mergeStateStatus: "CLEAN",
+    isInMergeQueue: false,
     ...overrides,
   });
   const connection = (nodes: (PullRequest | null)[], endCursor: string | null = null) => ({
@@ -220,6 +221,7 @@ describe("pullRequests", () => {
       expect(fields.owner).toBe("octo");
       expect(fields.name).toBe("repo");
       expect(fields.query).toContain("includeClosedPrs: true");
+      expect(fields.query).toContain("isInMergeQueue");
       if (++calls === 1) {
         expect(fields.query.match(/issue\(number:/g)).toHaveLength(2);
         return JSON.stringify({ data: { repository: { i1: connection([merged, open, null], "next"), i2: connection([]) } } });
