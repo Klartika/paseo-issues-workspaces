@@ -8,7 +8,7 @@ The search box takes GitHub's issue search syntax and starts with `assignee:@me`
 
 As on github.com, the table's header shows the open count and the Author, Labels, Milestones, Assignees and Types menus, filled from the project's repository. Picking an entry edits the search, so the box always shows what is applied. The header also switches between a comfortable and a compact density.
 
-Each issue shows GitHub's label colors and a **Create workspace** button, or **Open workspace** when a workspace already covers it. As with GitHub's split buttons, the arrow beside **Create workspace** picks what the button does: **Create workspace** or **Create and start an agent**. Tapping an issue's title opens it on GitHub.
+Each issue shows GitHub's label colors and a **Create workspace** button, or **Open workspace** when a workspace already covers it. As with GitHub's split buttons, the arrow beside **Create workspace** picks what the button does: **Create workspace** or **Create and start an agent**. Both actions open the new workspace after creation succeeds. Tapping an issue's title opens it on GitHub.
 
 On wide screens, issues, pull requests, and workspace actions occupy separate columns. The PR column shows one PR's review and merge status, prioritizing open PRs with requested changes or merge conflicts. An additional-PR count opens the complete list in a popover, so extra PRs do not make the row taller. Selecting the status also opens the details; selecting a PR number opens GitHub. Narrow screens stack the columns and use a sheet for PR details, as do native clients. Draft, merged, and closed PRs are identified, as are PRs waiting in a merge queue.
 
