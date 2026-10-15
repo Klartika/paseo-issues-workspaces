@@ -4,6 +4,7 @@ import {
   branchName,
   defaultAgent,
   issueMatcher,
+  offeredEffort,
   PAGE_SIZE,
   parseGitHubRemote,
   pullRequestsRpc,
@@ -371,12 +372,16 @@ async function settle<T>(promise: Promise<T>): Promise<{ value: T | null; error:
   }
 }
 
-/** The configured `provider/model`, else the first ready provider with its default model. */
-async function resolveAgent(paseo: PaseoApi, configured: string): Promise<string> {
-  if (configured) return configured;
-  const agent = defaultAgent((await paseo.providers.snapshot()).entries);
+/**
+ * The configured `provider/model`, else the first ready provider with its default model, and the
+ * configured effort when that model offers it.
+ */
+async function resolveAgent(paseo: PaseoApi, prefs: Preferences): Promise<{ agent: string; effort: string | null }> {
+  if (prefs.agent && !prefs.effort) return { agent: prefs.agent, effort: null };
+  const { entries } = await paseo.providers.snapshot();
+  const agent = prefs.agent || defaultAgent(entries);
   if (!agent) throw new Error("No agent provider is ready on this host. Choose one in the plugin's settings.");
-  return agent;
+  return { agent, effort: offeredEffort(entries, agent, prefs.effort) };
 }
 
 // A double press must not create two worktrees for one issue.
@@ -411,7 +416,7 @@ export async function createWorkspace(
     if (existing.orphanBranch) throw new Error(`#${n} already has local branch ${existing.orphanBranch}`);
 
     // Resolved before anything is created, so a missing provider leaves no workspace behind.
-    const agent = action === "agent" ? await resolveAgent(paseo, prefs.agent) : null;
+    const chosen = action === "agent" ? await resolveAgent(paseo, prefs) : null;
     const prompt =
       action === "agent" ? renderPrompt(prefs.agentPrompt, { number: String(n), title, url, repo: target.repo }) : null;
 
@@ -430,14 +435,16 @@ export async function createWorkspace(
       },
     });
     console.log(`created workspace ${workspace.id} for ${target.repo}#${n} on ${branch}`);
-    if (!agent || !prompt) return { workspaceId: workspace.id, branch, agentId: null, agent: null };
+    if (!chosen || !prompt) return { workspaceId: workspace.id, branch, agentId: null, agent: null, effort: null };
+    const { agent, effort } = chosen;
 
     // The agent runs in the new worktree; the prompt is its first message.
-    const started = await workspace.agents.create({ config: { provider: agent }, prompt }).catch((error: unknown) => {
+    const config = { provider: agent, ...(effort ? { thinkingOptionId: effort } : {}) };
+    const started = await workspace.agents.create({ config, prompt }).catch((error: unknown) => {
       throw new Error(`Workspace “#${n} ${title}” was created, but the agent (${agent}) could not start: ${errorText(error)}`);
     });
-    console.log(`started agent ${started.id} (${agent}) for ${target.repo}#${n}`);
-    return { workspaceId: workspace.id, branch, agentId: started.id, agent };
+    console.log(`started agent ${started.id} (${agent}${effort ? `, ${effort} effort` : ""}) for ${target.repo}#${n}`);
+    return { workspaceId: workspace.id, branch, agentId: started.id, agent, effort };
   } finally {
     inFlight.delete(key);
   }

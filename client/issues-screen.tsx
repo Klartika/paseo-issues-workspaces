@@ -145,7 +145,7 @@ export function IssuesScreen({
       const where = project.remote ? ` on ${project.remote.hostLabel}` : "";
       toast.show(
         result.agent
-          ? `Created workspace for #${issue.number}${where} and started ${result.agent}`
+          ? `Created workspace for #${issue.number}${where} and started ${result.agent}${result.effort ? ` at ${result.effort} effort` : ""}`
           : `Created workspace for #${issue.number}${where}`,
         { variant: "success" },
       );
@@ -266,8 +266,9 @@ export function IssuesScreen({
               busy={pending !== null}
               onCreate={(issue, action) => create.mutate({ project: selected, issue, action })}
               agentLabel={
-                prefs.agent ||
-                (selected.remote ? `${selected.remote.hostLabel}'s default agent` : "the host's default agent")
+                (prefs.agent ||
+                  (selected.remote ? `${selected.remote.hostLabel}'s default agent` : "the host's default agent")) +
+                (prefs.effort ? ` at ${prefs.effort} effort` : "")
               }
               menuOpen={openMenu !== null}
               createMenuFor={createMenu}

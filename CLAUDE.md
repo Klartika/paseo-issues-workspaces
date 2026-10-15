@@ -47,7 +47,7 @@ Install a checkout with `paseo plugin install "$PWD"`; it installs as `issues-wo
 
 **Project icons** (`server/project-icons.ts`) re-implement Paseo 0.11.2's private icon lookup, because the plugin SDK has no icon call. The order is: the custom icon file at `<PASEO_HOME>/projects/icons/<sha256(projectId)>.bin` (only when the project has a custom icon revision), then a repository search (priority dirs → monorepo packages → root). `iconRevision()` reproduces Paseo's fingerprint, so results can be checked against `projectIconRevision` from the daemon. Because this copies private Paseo 0.11.2 logic, a later Paseo release can change it without notice; when no icon is found, the tabs fall back to the generic `BookMarked` icon (`client/project-selector.tsx`).
 
-**Settings** (`preferences` in shared, version 1; when renaming or reshaping a stored key, bump `version` and add a `migrate` function): one host-scoped document holding the branch prefix, agent, agent prompt, selected repo, saved search and density. The screen applies changes locally at once and also saves them. `effectivePreferences` repairs invalid values on both sides.
+**Settings** (`preferences` in shared, version 1; when renaming or reshaping a stored key, bump `version` and add a `migrate` function): one host-scoped document holding the branch prefix, agent, effort (a thinking option id, passed as `thinkingOptionId` only when the model offers it), agent prompt, selected repo, saved search and density. The screen applies changes locally at once and also saves them. `effectivePreferences` repairs invalid values on both sides.
 
 ## UI gotchas
 

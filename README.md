@@ -43,6 +43,7 @@ Open the settings with the gear next to the search box, or from **Settings → P
 | --- | --- | --- |
 | Branch prefix | `issue/` | The start of new branch names. |
 | Agent | Automatic | The provider and model **Create and start an agent** uses. Automatic picks the first ready provider and its default model. |
+| Effort | Model default | How hard that agent thinks. The levels are the chosen model's; a level the model lacks uses its default. |
 | Agent prompt | Work on the issue, with tests | The agent's first message. `{number}`, `{title}`, `{url}` and `{repo}` are filled in from the issue. |
 
 Settings are stored on each host and shared by every client connected to it.

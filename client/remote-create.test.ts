@@ -43,7 +43,12 @@ function fakeHost({ providers = [] as unknown[], agentError }: { providers?: unk
   return { paseo: paseo as any, created, agents };
 }
 
-const ready = (provider: string, ...models: { id: string; isDefault?: boolean }[]) => ({
+const levels = [
+  { id: "low", label: "Low" },
+  { id: "high", label: "High" },
+];
+
+const ready = (provider: string, ...models: { id: string; isDefault?: boolean; thinkingOptions?: typeof levels }[]) => ({
   provider,
   status: "ready",
   models,
@@ -55,7 +60,7 @@ describe("createOnHost", () => {
 
     const result = await createOnHost({ paseo, project, number: 42, details, action: "create", prefs: DEFAULT_PREFERENCES });
 
-    expect(result).toEqual({ workspaceId: "wks_remote", branch: "issue/42-crash-on-start", agentId: null, agent: null });
+    expect(result).toEqual({ workspaceId: "wks_remote", branch: "issue/42-crash-on-start", agentId: null, agent: null, effort: null });
     expect(created).toEqual([
       {
         title: "#42 Crash on start",
@@ -105,6 +110,24 @@ describe("createOnHost", () => {
     await createOnHost({ paseo, project, number: 1, details, action: "agent", prefs: { ...DEFAULT_PREFERENCES, agent: "codex/gpt-5.5" } });
 
     expect(agents[0].config.provider).toBe("codex/gpt-5.5");
+  });
+
+  it("starts the configured effort when that host's model offers it", async () => {
+    const { paseo, agents } = fakeHost({ providers: [ready("claude", { id: "opus", isDefault: true, thinkingOptions: levels })] });
+
+    const result = await createOnHost({ paseo, project, number: 1, details, action: "agent", prefs: { ...DEFAULT_PREFERENCES, effort: "high" } });
+
+    expect(agents[0].config).toEqual({ provider: "claude/opus", thinkingOptionId: "high" });
+    expect(result).toMatchObject({ agent: "claude/opus", effort: "high" });
+  });
+
+  it("uses the model's default effort when that host's model lacks the configured one", async () => {
+    const { paseo, agents } = fakeHost({ providers: [ready("claude", { id: "opus", isDefault: true, thinkingOptions: levels })] });
+
+    const result = await createOnHost({ paseo, project, number: 1, details, action: "agent", prefs: { ...DEFAULT_PREFERENCES, effort: "max" } });
+
+    expect(agents[0].config).toEqual({ provider: "claude/opus" });
+    expect(result).toMatchObject({ effort: null });
   });
 
   it("falls back to that host's default when it lacks the configured agent", async () => {
