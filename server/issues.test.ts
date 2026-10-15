@@ -565,6 +565,7 @@ describe("createWorkspace", () => {
       branch: "issue/42-crash-on-start-when-the-config-file-is",
       agentId: null,
       agent: null,
+      effort: null,
     });
     expect(created).toEqual([
       {
@@ -719,6 +720,39 @@ describe("createWorkspace: create and start an agent", () => {
     await mod.createWorkspace(api, prefs({ agent: "codex/gpt-5.5" }), { projectId: "p1", number: 1, action: "agent" });
 
     expect(agents[0].config).toEqual({ provider: "codex/gpt-5.5" });
+  });
+
+  it("starts the configured effort when the model offers it", async () => {
+    const dir = await gitRepo({ origin: "git@github.com:octo/repo.git" });
+    fake.gh = creationGh();
+    const levels = [
+      { id: "low", label: "Low" },
+      { id: "high", label: "High" },
+    ];
+    const { api, agents } = fakePaseo({
+      projects: [{ id: "p1", name: "repo", root: dir }],
+      providers: [{ ...readyClaude, models: [{ id: "opus", label: "Opus", isDefault: true, thinkingOptions: levels }] }],
+    });
+
+    const result = await mod.createWorkspace(api, prefs({ agent: "claude/opus", effort: "high" }), {
+      projectId: "p1",
+      number: 1,
+      action: "agent",
+    });
+
+    expect(agents[0].config).toEqual({ provider: "claude/opus", thinkingOptionId: "high" });
+    expect(result).toMatchObject({ agent: "claude/opus", effort: "high" });
+  });
+
+  it("uses the model's default effort when the model lacks the configured one", async () => {
+    const dir = await gitRepo({ origin: "git@github.com:octo/repo.git" });
+    fake.gh = creationGh();
+    const { api, agents } = fakePaseo({ projects: [{ id: "p1", name: "repo", root: dir }], providers: [readyClaude] });
+
+    const result = await mod.createWorkspace(api, prefs({ effort: "high" }), { projectId: "p1", number: 1, action: "agent" });
+
+    expect(agents[0].config).toEqual({ provider: "claude/opus" });
+    expect(result).toMatchObject({ effort: null });
   });
 
   it("falls back to the first selectable model when none is marked default", async () => {

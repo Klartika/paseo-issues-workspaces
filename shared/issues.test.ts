@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   agentAvailable,
+  effortChoices,
+  offeredEffort,
   effectiveAgentPrompt,
   branchName,
   branchPrefixError,
@@ -98,6 +100,7 @@ describe("preferences", () => {
       searchQuery: DEFAULT_QUERY,
       density: "comfortable",
       agent: "",
+      effort: "",
       agentPrompt: DEFAULT_AGENT_PROMPT,
     });
     expect(DEFAULT_PREFERENCES).toEqual(preferences.schema.parse({}));
@@ -252,5 +255,48 @@ describe("defaultAgent and agentAvailable", () => {
     expect(agentAvailable(providers, "codex/gpt")).toBe(false);
     expect(agentAvailable(providers, "copilot/x")).toBe(false);
     expect(agentAvailable(providers, "gemini/pro")).toBe(false);
+  });
+});
+
+describe("effortChoices and offeredEffort", () => {
+  const levels = [
+    { id: "low", label: "Low" },
+    { id: "high", label: "High", isDefault: true },
+  ];
+  const providers = [
+    {
+      provider: "claude",
+      status: "ready",
+      models: [
+        { id: "opus", thinkingOptions: levels, defaultThinkingOptionId: "low" },
+        { id: "sonnet", thinkingOptions: levels },
+        { id: "haiku" },
+      ],
+    },
+    { provider: "codex", status: "loading", models: [{ id: "gpt", thinkingOptions: levels }] },
+  ];
+
+  it("lists the model's levels and its default", () => {
+    expect(effortChoices(providers, "claude/opus")).toEqual({
+      options: [
+        { id: "low", label: "Low" },
+        { id: "high", label: "High" },
+      ],
+      defaultId: "low",
+    });
+    expect(effortChoices(providers, "claude/sonnet").defaultId).toBe("high");
+  });
+
+  it("offers nothing for a model without levels, or one the host does not offer", () => {
+    expect(effortChoices(providers, "claude/haiku")).toEqual({ options: [], defaultId: null });
+    expect(effortChoices(providers, "codex/gpt")).toEqual({ options: [], defaultId: null });
+    expect(effortChoices(providers, "")).toEqual({ options: [], defaultId: null });
+  });
+
+  it("keeps an effort only when the model offers it", () => {
+    expect(offeredEffort(providers, "claude/opus", "high")).toBe("high");
+    expect(offeredEffort(providers, "claude/opus", "max")).toBeNull();
+    expect(offeredEffort(providers, "claude/haiku", "high")).toBeNull();
+    expect(offeredEffort(providers, "claude/opus", "")).toBeNull();
   });
 });

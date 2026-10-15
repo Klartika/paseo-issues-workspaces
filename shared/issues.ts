@@ -42,6 +42,8 @@ export const preferences = defineSettings({
     density: z.enum(DENSITIES).default("comfortable"),
     /** `provider/model` for "Create and start". Empty uses the first ready provider and its default model. */
     agent: z.string().default(""),
+    /** Thinking option id (`low`, `high`, ...) for "Create and start". Empty, or one the model lacks, uses the model's default. */
+    effort: z.string().default(""),
     /** The first message "Create and start" sends the agent. */
     agentPrompt: z.string().default(DEFAULT_AGENT_PROMPT),
   }),
@@ -73,6 +75,7 @@ export function effectivePreferences(values: Preferences): Preferences {
     searchQuery: values.searchQuery,
     density: values.density,
     agent: values.agent,
+    effort: values.effort,
     agentPrompt: effectiveAgentPrompt(values.agentPrompt),
   };
 }
@@ -101,7 +104,13 @@ export type ProviderEntry = {
   provider: string;
   status: string;
   enabled?: boolean;
-  models?: { id: string; isDefault?: boolean; isSelectable?: boolean }[];
+  models?: {
+    id: string;
+    isDefault?: boolean;
+    isSelectable?: boolean;
+    thinkingOptions?: { id: string; label: string; isDefault?: boolean }[];
+    defaultThinkingOptionId?: string;
+  }[];
 };
 
 /** The first ready provider with its default model, as `provider/model`; null when none is ready. */
@@ -115,18 +124,32 @@ export function defaultAgent(entries: readonly ProviderEntry[]): string | null {
   return null;
 }
 
-/** Whether `agent` (`provider/model`) is offered by a ready provider in `entries`. */
-export function agentAvailable(entries: readonly ProviderEntry[], agent: string): boolean {
+/** The model `agent` (`provider/model`) names, when a ready provider in `entries` offers it. */
+function findModel(entries: readonly ProviderEntry[], agent: string) {
   const at = agent.indexOf("/");
   const provider = agent.slice(0, at);
   const model = agent.slice(at + 1);
-  return entries.some(
-    (p) =>
-      p.provider === provider &&
-      p.enabled !== false &&
-      p.status === "ready" &&
-      (p.models ?? []).some((m) => m.id === model && m.isSelectable !== false),
-  );
+  return entries
+    .find((p) => p.provider === provider && p.enabled !== false && p.status === "ready")
+    ?.models?.find((m) => m.id === model && m.isSelectable !== false);
+}
+
+/** Whether `agent` (`provider/model`) is offered by a ready provider in `entries`. */
+export function agentAvailable(entries: readonly ProviderEntry[], agent: string): boolean {
+  return findModel(entries, agent) !== undefined;
+}
+
+/** The effort levels `agent`'s model offers, and the one it uses by default. */
+export function effortChoices(entries: readonly ProviderEntry[], agent: string) {
+  const model = findModel(entries, agent);
+  const options = model?.thinkingOptions ?? [];
+  const defaultId = model?.defaultThinkingOptionId ?? options.find((o) => o.isDefault)?.id ?? null;
+  return { options: options.map(({ id, label }) => ({ id, label })), defaultId };
+}
+
+/** `effort` when `agent`'s model offers it, else null so the model's default applies. */
+export function offeredEffort(entries: readonly ProviderEntry[], agent: string, effort: string): string | null {
+  return effort && effortChoices(entries, agent).options.some((o) => o.id === effort) ? effort : null;
 }
 
 /** `owner/repo` for a github.com remote URL, else null. */
@@ -280,5 +303,7 @@ export const createWorkspaceRpc = defineRpc({
     agentId: z.string().nullable(),
     /** The `provider/model` the agent runs, for `agent`. */
     agent: z.string().nullable(),
+    /** The effort the agent starts with, for `agent`; null when it uses the model's default. */
+    effort: z.string().nullable(),
   }),
 });

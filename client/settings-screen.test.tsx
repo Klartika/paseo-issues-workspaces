@@ -112,6 +112,73 @@ describe("settings screen", () => {
     await waitFor(() => expect(saves.at(-1)).toMatchObject({ agent: "claude/opus", agentPrompt: "Fix #{number}" }));
   });
 
+  it("offers the chosen model's effort levels and saves one", async () => {
+    const saves = readySettings(prefs());
+    host.providers = [
+      {
+        provider: "claude",
+        status: "ready",
+        models: [
+          {
+            id: "opus",
+            label: "Opus",
+            thinkingOptions: [
+              { id: "low", label: "Low" },
+              { id: "max", label: "Max" },
+            ],
+            defaultThinkingOptionId: "low",
+          },
+          { id: "haiku", label: "Haiku" },
+        ],
+      },
+    ];
+    renderSettings();
+    const agent = screen.getByLabelText("Agent") as HTMLSelectElement;
+    await waitFor(() => expect(agent.options).toHaveLength(3));
+    fireEvent.change(agent, { target: { value: "claude/opus" } });
+
+    const effort = screen.getByLabelText("Effort") as HTMLSelectElement;
+    expect([...effort.options].map((o) => [o.value, o.textContent])).toEqual([
+      ["", "Model default (Low)"],
+      ["low", "Low"],
+      ["max", "Max"],
+    ]);
+    fireEvent.change(effort, { target: { value: "max" } });
+    fireEvent.click(save());
+
+    await waitFor(() => expect(saves.at(-1)).toMatchObject({ agent: "claude/opus", effort: "max" }));
+  });
+
+  it("returns the effort to the model default when the new model lacks it", async () => {
+    readySettings(prefs({ agent: "claude/opus", effort: "max" }));
+    host.providers = [
+      {
+        provider: "claude",
+        status: "ready",
+        models: [
+          { id: "opus", label: "Opus", thinkingOptions: [{ id: "max", label: "Max" }] },
+          { id: "haiku", label: "Haiku" },
+        ],
+      },
+    ];
+    renderSettings();
+    const effort = screen.getByLabelText("Effort") as HTMLSelectElement;
+    await waitFor(() => expect(effort.options).toHaveLength(2));
+    expect(effort.value).toBe("max");
+
+    fireEvent.change(screen.getByLabelText("Agent"), { target: { value: "claude/haiku" } });
+
+    expect(effort.value).toBe("");
+    expect([...effort.options].map((o) => o.textContent)).toEqual(["Model default"]);
+  });
+
+  it("keeps a saved effort the host no longer lists", () => {
+    readySettings(prefs({ agent: "gone/model", effort: "max" }));
+    renderSettings();
+
+    expect((screen.getByLabelText("Effort") as HTMLSelectElement).value).toBe("max");
+  });
+
   it("shows the default, with nothing to save, when a blank prompt was saved", () => {
     readySettings(prefs({ agentPrompt: "  " }));
     renderSettings();

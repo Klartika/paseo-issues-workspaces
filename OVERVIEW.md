@@ -24,7 +24,7 @@ An issue counts as covered when a workspace in any project on the same repositor
 
 ## Other hosts
 
-With several hosts connected, the project tabs also offer GitHub projects that only another online host has, labelled with that host's name; their issues are searched with this host's `gh`, and the other host needs neither this plugin nor `gh`. Creating a workspace for one of those issues creates it on that host. This host cannot run git there, so the worktree branches from that host's last-fetched copy of the default branch on `origin`, and leftover local branches there are not detected. **Create and start** starts the configured agent when that host has it ready, otherwise that host's default. An issue in this host's projects that already has a workspace on another online host shows a link to it.
+With several hosts connected, the project tabs also offer GitHub projects that only another online host has, labelled with that host's name; their issues are searched with this host's `gh`, and the other host needs neither this plugin nor `gh`. Creating a workspace for one of those issues creates it on that host. This host cannot run git there, so the worktree branches from that host's last-fetched copy of the default branch on `origin`, and leftover local branches there are not detected. **Create and start** starts the configured agent when that host has it ready, otherwise that host's default, at the configured effort when that model offers it. An issue in this host's projects that already has a workspace on another online host shows a link to it.
 
 ## Setup
 
@@ -36,6 +36,7 @@ Open the settings with the gear button next to the search box, the **Issues Work
 
 - **Branch prefix**: the start of new branch names. Defaults to `issue/`.
 - **Agent**: the provider and model that **Create and start an agent** starts. Automatic uses the first ready provider and its default model.
+- **Effort**: how hard that agent thinks, from the levels the chosen model offers, such as low, medium or high. Model default uses the model's own default, as does a level the model does not offer.
 - **Agent prompt**: the agent's first message. `{number}`, `{title}`, `{url}` and `{repo}` are filled in from the issue. The default asks the agent to read the issue with `gh`, fix the root cause with tests if it reports a bug or otherwise do what it asks, and summarize the change.
 
 The selected project, search and density are saved with these settings. Settings are stored on each host and shared by every client connected to it.

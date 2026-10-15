@@ -14,35 +14,41 @@ import { useState } from "react";
 import { ActivityIndicator, Text } from "react-native";
 import {
   branchPrefixError,
+  defaultAgent,
   effectiveAgentPrompt,
+  effortChoices,
   DEFAULT_AGENT_PROMPT,
   preferences,
   PROMPT_PLACEHOLDERS,
   type Preferences,
+  type ProviderEntry,
 } from "../shared/issues";
 
 const AUTOMATIC = "";
+const MODEL_DEFAULT = "";
 
-/** `provider/model` choices from the host's ready providers. */
-function useAgentOptions() {
+type Option = { value: string; label: string };
+
+/** The host's ready providers, and their models as `provider/model` choices. */
+function useProviders() {
   const paseo = usePaseo();
   return useQuery({
     queryKey: ["providers.snapshot"],
     queryFn: async () => {
       const { entries } = await paseo.providers.snapshot();
-      return entries
-        .filter((p) => p.enabled !== false && p.status === "ready")
-        .flatMap((p) =>
-          (p.models ?? [])
-            .filter((m) => m.isSelectable !== false)
-            .map((m) => ({ value: `${p.provider}/${m.id}`, label: `${p.label ?? p.provider} · ${m.label}` })),
-        );
+      const ready = entries.filter((p) => p.enabled !== false && p.status === "ready");
+      const agentOptions = ready.flatMap((p) =>
+        (p.models ?? [])
+          .filter((m) => m.isSelectable !== false)
+          .map((m) => ({ value: `${p.provider}/${m.id}`, label: `${p.label ?? p.provider} · ${m.label}` })),
+      );
+      return { entries: ready as ProviderEntry[], agentOptions };
     },
   });
 }
 
 export function SettingsScreen({ theme }: PluginSurfaceProps) {
-  const agentOptions = useAgentOptions();
+  const providers = useProviders();
   const settings = useSettings(preferences);
   const errorStyle = { color: theme.colors.statusDanger };
 
@@ -69,7 +75,8 @@ export function SettingsScreen({ theme }: PluginSurfaceProps) {
       key={settings.revision}
       values={settings.values}
       theme={theme}
-      agentOptions={agentOptions.data ?? []}
+      providers={providers.data?.entries ?? []}
+      agentOptions={providers.data?.agentOptions ?? []}
       saving={settings.saving}
       saveError={settings.saveError}
       onSave={(values) => settings.save(values, settings.revision)}
@@ -80,6 +87,7 @@ export function SettingsScreen({ theme }: PluginSurfaceProps) {
 function PreferencesForm({
   values,
   theme,
+  providers,
   agentOptions,
   saving,
   saveError,
@@ -87,19 +95,22 @@ function PreferencesForm({
 }: {
   values: Preferences;
   theme: PluginSurfaceProps["theme"];
-  agentOptions: { value: string; label: string }[];
+  providers: ProviderEntry[];
+  agentOptions: Option[];
   saving: boolean;
   saveError: string | null;
   onSave: (values: Preferences) => Promise<boolean>;
 }) {
   const [branchPrefix, setBranchPrefix] = useState(values.branchPrefix);
   const [agent, setAgent] = useState(values.agent);
+  const [effort, setEffort] = useState(values.effort);
   const savedPrompt = effectiveAgentPrompt(values.agentPrompt);
   const [agentPrompt, setAgentPrompt] = useState(savedPrompt);
   const prefixError = branchPrefixError(branchPrefix);
   const changed =
     branchPrefix !== values.branchPrefix ||
     agent !== values.agent ||
+    effort !== values.effort ||
     agentPrompt !== savedPrompt;
   // A saved agent the host no longer offers stays selectable, so opening settings never changes it.
   const options = [
@@ -107,6 +118,21 @@ function PreferencesForm({
     ...agentOptions,
     ...(agent && !agentOptions.some((o) => o.value === agent) ? [{ value: agent, label: agent }] : []),
   ];
+  // Effort levels belong to a model; Automatic offers those of the model it would pick today.
+  const efforts = effortChoices(providers, agent || (defaultAgent(providers) ?? ""));
+  const defaultLabel = efforts.options.find((o) => o.id === efforts.defaultId)?.label;
+  const effortOptions: Option[] = [
+    { value: MODEL_DEFAULT, label: defaultLabel ? `Model default (${defaultLabel})` : "Model default" },
+    ...efforts.options.map((o) => ({ value: o.id, label: o.label })),
+    // Like the agent, a saved effort the model no longer lists stays as it is.
+    ...(effort && !efforts.options.some((o) => o.id === effort) ? [{ value: effort, label: effort }] : []),
+  ];
+  const chooseAgent = (next: string) => {
+    setAgent(next);
+    // A level the newly chosen model lacks would be ignored, so start from its default instead.
+    const offered = effortChoices(providers, next || (defaultAgent(providers) ?? "")).options;
+    if (effort && !offered.some((o) => o.id === effort)) setEffort(MODEL_DEFAULT);
+  };
 
   return (
     <>
@@ -129,7 +155,14 @@ function PreferencesForm({
             hint="The provider and model started in the new workspace."
             value={agent}
             options={options}
-            onValueChange={setAgent}
+            onValueChange={chooseAgent}
+          />
+          <SettingsSelect
+            label="Effort"
+            hint="How hard the agent thinks. The levels are the chosen model's; a level that model lacks uses its default."
+            value={effort}
+            options={effortOptions}
+            onValueChange={setEffort}
           />
           <SettingsRow
             label="Agent prompt"
@@ -169,7 +202,7 @@ function PreferencesForm({
           hint={saveError ?? undefined}
           actionLabel={saving ? "Saving…" : "Save"}
           disabled={saving || !changed || Boolean(prefixError)}
-          onPress={() => void onSave({ ...values, branchPrefix, agent, agentPrompt })}
+          onPress={() => void onSave({ ...values, branchPrefix, agent, effort, agentPrompt })}
         />
       </SettingsCard>
     </>
