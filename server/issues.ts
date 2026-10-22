@@ -597,7 +597,8 @@ export async function filterOptions(input: { repo: string } | { owners: string[]
       gh([
         "api", "graphql",
         "-f", "query=query($owner:String!,$name:String!){repository(owner:$owner,name:$name){issueTypes(first:50){nodes{name color description isEnabled}}}}",
-        "-F", `owner=${owner}`, "-F", `name=${name}`,
+        // -f, not -F: -F reads a value starting with @ from a file and turns digits into numbers.
+        "-f", `owner=${owner}`, "-f", `name=${name}`,
         "--jq", ".data.repository.issueTypes.nodes // [] | .[] | select(.isEnabled) | {name, color, description}",
       ]).then((r) => jsonLines<Named>(r.stdout)),
     ),

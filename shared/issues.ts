@@ -322,7 +322,7 @@ const named = z.object({ name: z.string(), color: z.string(), description: z.str
  */
 export const filterOptionsRpc = defineRpc({
   name: "issues.filter-options",
-  input: z.union([z.object({ repo: z.string() }), z.object({ owners })]),
+  input: z.union([z.object({ repo: repoSlug }), z.object({ owners })]),
   output: z.object({
     /** The signed-in GitHub login, which `@me` stands for. */
     me: z.string().nullable(),
