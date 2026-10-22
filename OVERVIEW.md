@@ -16,7 +16,7 @@ Links come from closing references such as `Closes #2` in a PR description or ma
 
 ## The All tab
 
-List GitHub organizations or users under **Owners** in the settings, and an **All** tab appears before the project tabs. It searches the open issues of every repository those owners have, in one search, with the same search box, sort order and paging. Each issue names its repository. An issue in a repository that is one of this host's projects gets **Create workspace** in that project, or **Open workspace** when one covers it, and none while a leftover local branch exists, as in the project tabs; any other issue gets **Open on GitHub** instead.
+List GitHub organizations or users under **Owners** in the settings, and an **All** tab appears before the project tabs. It searches the open issues of every repository those owners have, in one search, with the same search box, sort order and paging. Each issue names its repository. An issue in a repository that is one of this host's projects gets **Create workspace** in that project, or **Open workspace** when one covers it, and none while a leftover local branch exists, as in the project tabs; any other issue gets **Open on GitHub** instead. Pull request status for the page loads in one request across its repositories; a repository GitHub refuses shows none, and the others still do.
 
 Labels, milestones and assignable people belong to each repository, so the All tab does not fetch them for every repository. Its Labels menu offers the labels on the issues shown, plus any already in the search; the Author and Assignees menus offer you and take any login you type; the Types menu offers the owners' organization issue types; and there is no Milestones menu. Leave **Owners** empty to hide the tab.
 

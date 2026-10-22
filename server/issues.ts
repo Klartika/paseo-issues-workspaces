@@ -276,19 +276,48 @@ export async function projectList(paseo: PaseoApi) {
 /** No local checkout: coverage for these issues is worked out from the other host's workspaces. */
 const NO_COVERAGE = { workspaces: [] as Workspace[], branches: [] as string[] };
 
-/** Batch the visible issues, then follow any remaining PR connection pages. */
-export async function pullRequests(input: { repo: string; numbers: number[] }) {
-  const { repo, numbers } = pullRequestsRpc.input.parse(input);
-  const result: Record<string, PullRequest[]> = {};
-  let pending = [...new Set(numbers)].map((number) => ({ number, after: null as string | null }));
-  const [owner, name] = repo.split("/");
-  while (pending.length) {
-    const fields = pending.map(({ number, after }) => `i${number}: issue(number: ${number}) {
+/** An issue's closing PRs from `after`, as a GraphQL field named `i<number>`. */
+const closingPullRequestsField = (number: number, after: string | null) => `i${number}: issue(number: ${number}) {
       closedByPullRequestsReferences(first: 100, includeClosedPrs: true, after: ${JSON.stringify(after)}) {
         nodes { number title url state isDraft reviewDecision mergeable mergeStateStatus isInMergeQueue }
         pageInfo { hasNextPage endCursor }
       }
-    }`);
+    }`;
+
+type Connection = {
+  nodes: (PullRequest | null)[];
+  pageInfo: { hasNextPage: boolean; endCursor: string | null };
+};
+type IssueFields = Record<string, { closedByPullRequestsReferences: Connection | null } | null>;
+
+/** Adds a connection page's PRs to `prs`; returns the cursor of the next page, or null. */
+function collect(prs: PullRequest[], connection: Connection, after: string | null) {
+  for (const pr of connection.nodes) {
+    if (pr && !prs.some((existing) => existing.url === pr.url)) prs.push(pr);
+  }
+  if (!connection.pageInfo.hasNextPage) return null;
+  const cursor = connection.pageInfo.endCursor;
+  if (!cursor || cursor === after) throw new Error("Could not load the next page of pull requests");
+  return cursor;
+}
+
+/** Active PRs first; preserve GitHub's ordering within each state. */
+function byState(result: Record<string, PullRequest[]>) {
+  const rank = { OPEN: 0, MERGED: 1, CLOSED: 2 };
+  for (const prs of Object.values(result)) prs.sort((a, b) => rank[a.state] - rank[b.state]);
+  return { pullRequests: result };
+}
+
+/** Batch the visible issues, then follow any remaining PR connection pages. */
+export async function pullRequests(input: { repo: string; numbers: number[] } | { issues: { repo: string; number: number }[] }) {
+  const parsed = pullRequestsRpc.input.parse(input);
+  if ("issues" in parsed) return pullRequestsAcross(parsed.issues);
+  const { repo, numbers } = parsed;
+  const result: Record<string, PullRequest[]> = {};
+  let pending = [...new Set(numbers)].map((number) => ({ number, after: null as string | null }));
+  const [owner, name] = repo.split("/");
+  while (pending.length) {
+    const fields = pending.map(({ number, after }) => closingPullRequestsField(number, after));
     let stdout: string;
     try {
       ({ stdout } = await gh([
@@ -299,12 +328,8 @@ export async function pullRequests(input: { repo: string; numbers: number[] }) {
     } catch (error) {
       throw new Error(errorText(error));
     }
-    type Connection = {
-      nodes: (PullRequest | null)[];
-      pageInfo: { hasNextPage: boolean; endCursor: string | null };
-    };
     const response = JSON.parse(stdout) as {
-      data?: { repository: Record<string, { closedByPullRequestsReferences: Connection | null } | null> | null };
+      data?: { repository: IssueFields | null };
       errors?: { message: string }[];
     };
     // Partial GraphQL failures must not masquerade as issues with no linked PRs.
@@ -314,22 +339,58 @@ export async function pullRequests(input: { repo: string; numbers: number[] }) {
     for (const { number, after } of pending) {
       const connection = response.data.repository[`i${number}`]?.closedByPullRequestsReferences;
       if (!connection) throw new Error(`Could not load pull requests for ${repo}#${number}`);
-      const prs = result[number] ??= [];
-      for (const pr of connection.nodes) {
-        if (pr && !prs.some((existing) => existing.url === pr.url)) prs.push(pr);
-      }
-      if (connection.pageInfo.hasNextPage) {
-        const cursor = connection.pageInfo.endCursor;
-        if (!cursor || cursor === after) throw new Error("Could not load the next page of pull requests");
-        next.push({ number, after: cursor });
-      }
+      const cursor = collect((result[number] ??= []), connection, after);
+      if (cursor) next.push({ number, after: cursor });
     }
     pending = next;
   }
-  // Active PRs first; preserve GitHub's ordering within each state.
-  const rank = { OPEN: 0, MERGED: 1, CLOSED: 2 };
-  for (const prs of Object.values(result)) prs.sort((a, b) => rank[a.state] - rank[b.state]);
-  return { pullRequests: result };
+  return byState(result);
+}
+
+/**
+ * The All tab's PRs: one query per round for every repository on the page. An issue whose
+ * repository or issue GitHub refuses is left out rather than shown with no PRs; only a page
+ * where nothing could be loaded is an error.
+ */
+async function pullRequestsAcross(issues: { repo: string; number: number }[]) {
+  const result: Record<string, PullRequest[]> = {};
+  const unique = new Map(issues.map((issue) => [`${issue.repo}#${issue.number}`, issue]));
+  let pending = [...unique.values()].map((issue) => ({ ...issue, after: null as string | null }));
+  let firstRound = true;
+  while (pending.length) {
+    const repos = [...new Set(pending.map((p) => p.repo))];
+    const fields = repos.map((repo, r) => {
+      const [owner, name] = repo.split("/");
+      const issueFields = pending.filter((p) => p.repo === repo).map((p) => closingPullRequestsField(p.number, p.after));
+      return `r${r}: repository(owner: ${JSON.stringify(owner)}, name: ${JSON.stringify(name)}) { ${issueFields.join(" ")} }`;
+    });
+    let stdout: string;
+    try {
+      ({ stdout } = await gh(["api", "graphql", "-f", `query={${fields.join(" ")}}`]));
+    } catch (error) {
+      // gh exits non-zero when any part fails, but still prints what GitHub returned.
+      const out = (error as { stdout?: unknown }).stdout;
+      if (typeof out !== "string" || !out.trim().startsWith("{")) throw new Error(errorText(error));
+      stdout = out;
+    }
+    const response = JSON.parse(stdout) as {
+      data?: Record<string, IssueFields | null> | null;
+      errors?: { message: string }[];
+    };
+    const next: typeof pending = [];
+    for (const p of pending) {
+      const connection = response.data?.[`r${repos.indexOf(p.repo)}`]?.[`i${p.number}`]?.closedByPullRequestsReferences;
+      if (!connection) continue;
+      const cursor = collect((result[`${p.repo}#${p.number}`] ??= []), connection, p.after);
+      if (cursor) next.push({ ...p, after: cursor });
+    }
+    if (firstRound && pending.length && !Object.keys(result).length) {
+      throw new Error(response.errors?.map((e) => e.message).join("; ") || "Could not load pull requests");
+    }
+    firstRound = false;
+    pending = next;
+  }
+  return byState(result);
 }
 
 /**
@@ -375,6 +436,8 @@ async function ownersPage(
   prefs: Preferences,
   result: { totalCount: number; items: SearchItem[] },
 ) {
+  // Nothing to cover: skip listing projects and running git in each.
+  if (!result.items.length) return { issues: [], totalCount: result.totalCount };
   const [{ repos }, workspaces] = await Promise.all([
     listProjects(paseo).then(githubRepos),
     listWorkspaces(paseo),

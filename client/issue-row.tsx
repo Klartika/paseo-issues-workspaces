@@ -90,7 +90,8 @@ export function IssueRow({
   const opened = `${showRepo && issue.repo ? `${issue.repo} ` : ""}#${issue.number} opened ${timeAgo(issue.createdAt)}${issue.author ? ` by ${issue.author}` : ""}`;
 
   return (
-    <View testID={`issue-row-${issue.number}`} style={[s.row, menuOpen || pullRequestsOpen ? { zIndex: 7 } : null]}>
+    // Numbers repeat across the All tab's repositories, so its rows name the repository too.
+    <View testID={`issue-row-${issue.repo ? `${issue.repo}#` : ""}${issue.number}`} style={[s.row, menuOpen || pullRequestsOpen ? { zIndex: 7 } : null]}>
       <View style={s.icon}>
         <Icon name="CircleDot" size={16} color={openIssueColor(dark)} />
       </View>

@@ -105,8 +105,11 @@ export function IssuesScreen({
     : [];
   const owners = prefs.owners;
   const choice = repoChoice ?? saved?.selectedRepo ?? "";
-  // All is also the only choice when no project here is on GitHub.
-  const allSelected = owners.length > 0 && (choice === ALL_TAB || (projects.isSuccess && !options.length));
+  // All is also the only choice when no project is on GitHub, here or on another host. Other hosts
+  // are known once their query succeeds, or at once when none is online (the query is disabled).
+  const othersKnown = others.isSuccess || others.fetchStatus === "idle";
+  const allSelected =
+    owners.length > 0 && (choice === ALL_TAB || (projects.isSuccess && othersKnown && !options.length));
   const selected = allSelected ? null : pickProject(options, choice);
   const showTabs = owners.length > 0 || showProjectSelector(options);
   // Assigned-to-me counts for the tabs arrive separately, so they never hold up the page.

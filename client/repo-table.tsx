@@ -114,25 +114,17 @@ export function RepoTable({
   const raw = result.data?.issues ?? [];
   const repoOf = (issue: Issue) => issue.repo ?? project?.repo ?? "";
   const fetchPullRequests = useRpc(pullRequestsRpc);
-  // The issue numbers on the page by repository; the All tab's page spans several.
-  const numbers: Record<string, number[]> = {};
-  for (const issue of raw) (numbers[repoOf(issue)] ??= []).push(issue.number);
   const prs = useQuery({
-    queryKey: [...PULL_REQUESTS_QUERY_KEY, numbers],
-    queryFn: async () => {
-      const repos = Object.entries(numbers);
-      const results = await Promise.allSettled(
-        repos.map(([repo, list]) => fetchPullRequests({ repo, numbers: list })),
-      );
-      // One repository GitHub refuses leaves the others' PR status; only a total failure is an error.
-      const failed = results.find((r) => r.status === "rejected");
-      if (failed && results.every((r) => r.status === "rejected")) throw failed.reason;
-      const out: Record<string, PullRequest[]> = {};
-      results.forEach((r, i) => {
-        if (r.status !== "fulfilled") return;
-        for (const [n, list] of Object.entries(r.value.pullRequests)) out[`${repos[i][0]}#${n}`] = list;
-      });
-      return out;
+    queryKey: [...PULL_REQUESTS_QUERY_KEY, raw.map((issue) => `${repoOf(issue)}#${issue.number}`)],
+    queryFn: async (): Promise<Record<string, PullRequest[]>> => {
+      // The All tab's page spans repositories: one request for all of them, keyed `owner/repo#number`.
+      if (owners) {
+        const issues = raw.map((issue) => ({ repo: repoOf(issue), number: issue.number }));
+        return (await fetchPullRequests({ issues })).pullRequests;
+      }
+      const repo = project!.repo;
+      const { pullRequests } = await fetchPullRequests({ repo, numbers: raw.map((issue) => issue.number) });
+      return Object.fromEntries(Object.entries(pullRequests).map(([n, list]) => [`${repo}#${n}`, list]));
     },
     enabled: raw.length > 0 && !result.isPlaceholderData && result.isSuccess,
     staleTime: 30_000,

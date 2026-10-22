@@ -779,6 +779,8 @@ describe("issues screen: All tab", () => {
     expect(requests.at(-1)).toEqual({ owners, query: "assignee:@me", page: 1, sort: "created-desc" });
     expect(screen.getByText(/^octo-org\/app #7 opened/)).toBeTruthy();
     expect(screen.getByText(/^octocat\/dotfiles #7 opened/)).toBeTruthy();
+    expect(screen.getByTestId("issue-row-octo-org/app#7")).toBeTruthy();
+    expect(screen.getByTestId("issue-row-octocat/dotfiles#7")).toBeTruthy();
     await waitFor(() => expect(saves.at(-1)?.selectedRepo).toBe("*"));
   });
 
@@ -795,19 +797,22 @@ describe("issues screen: All tab", () => {
     expect(host.opened).toEqual(["https://github.com/octocat/dotfiles/issues/7"]);
   });
 
-  it("asks for PR status once per repository and shows each on its own issue", async () => {
+  it("asks for the whole page's PR status in one request and shows each on its own issue", async () => {
     const requests: unknown[] = [];
     host.rpcs.set("issues.pull-requests", async (input) => {
       requests.push(input);
-      const { repo } = input as { repo: string };
-      return { pullRequests: repo === "octocat/dotfiles" ? { "7": [pullRequest({ number: 9, title: "Dotfiles fix" })] } : {} };
+      return { pullRequests: { "octocat/dotfiles#7": [pullRequest({ number: 9, title: "Dotfiles fix" })] } };
     });
     setUp({ selectedRepo: "*" });
 
     expect(await screen.findByRole("link", { name: "Open pull request 9 on GitHub: Dotfiles fix" })).toBeTruthy();
     expect(requests).toEqual([
-      { repo: "octo-org/app", numbers: [7] },
-      { repo: "octocat/dotfiles", numbers: [7] },
+      {
+        issues: [
+          { repo: "octo-org/app", number: 7 },
+          { repo: "octocat/dotfiles", number: 7 },
+        ],
+      },
     ]);
     expect(screen.getAllByRole("link", { name: /^Open pull request/ })).toHaveLength(1);
   });
@@ -828,18 +833,6 @@ describe("issues screen: All tab", () => {
     ]);
     fireEvent.click(within(menu).getByRole("menuitem", { name: "chore" }));
     await waitFor(() => expect(requests.at(-1)?.query).toBe("label:wontfix label:chore"));
-  });
-
-  it("keeps the PR status of the repositories GitHub answers for", async () => {
-    host.rpcs.set("issues.pull-requests", async (input) => {
-      const { repo } = input as { repo: string };
-      if (repo === "octo-org/app") throw new Error("SAML enforcement");
-      return { pullRequests: { "7": [pullRequest({ number: 9, title: "Dotfiles fix" })] } };
-    });
-    setUp({ selectedRepo: "*" });
-
-    expect(await screen.findByRole("link", { name: "Open pull request 9 on GitHub: Dotfiles fix" })).toBeTruthy();
-    expect(screen.queryByText(/Could not load PR status/)).toBeNull();
   });
 
   it("opens on the All tab when no project here is on GitHub", async () => {
@@ -1578,6 +1571,22 @@ describe("issues screen: projects on other hosts", () => {
     renderScreen({ compact: true });
     expect(await screen.findByText("Mergeable")).toBeTruthy();
     expect(fetch).toHaveBeenCalledWith({ repo: "octo/there", numbers: [9] });
+  });
+
+  it("waits for other hosts before falling back to the All tab, so their projects are not searched past", async () => {
+    readySettings(prefs({ owners: ["octo"] }));
+    serveProjects([]);
+    serveOptions();
+    const requests = servePages({ "octo/there": [issue(9)], "owners:octo": [] });
+    buildBox([remoteProject("octo/there")]);
+    let arrive = () => {};
+    host.remoteProjectsGate = new Promise((resolve) => (arrive = resolve));
+    renderScreen();
+    await settle();
+    arrive();
+
+    expect(await screen.findByText("Issue 9")).toBeTruthy();
+    expect(requests.some((r) => r.owners)).toBe(false);
   });
 
   it("offers a project only another host has, labelled with that host", async () => {

@@ -242,13 +242,24 @@ const pullRequest = z.object({
 });
 export type PullRequest = z.infer<typeof pullRequest>;
 
-/** GitHub's closing PR links for the visible issues, fetched independently of the issue search. */
+const repoSlug = z.string().regex(/^[^/\s]+\/[^/\s]+$/);
+
+/**
+ * GitHub's closing PR links for the visible issues, fetched independently of the issue search.
+ * `repo` and `numbers` answer by issue number; `issues`, for the All tab's page across
+ * repositories, answers by `owner/repo#number` and leaves out repositories GitHub refuses.
+ */
 export const pullRequestsRpc = defineRpc({
   name: "issues.pull-requests",
-  input: z.object({
-    repo: z.string().regex(/^[^/\s]+\/[^/\s]+$/),
-    numbers: z.array(z.number().int().positive()).max(PAGE_SIZE),
-  }),
+  input: z.union([
+    z.object({
+      repo: repoSlug,
+      numbers: z.array(z.number().int().positive()).max(PAGE_SIZE),
+    }),
+    z.object({
+      issues: z.array(z.object({ repo: repoSlug, number: z.number().int().positive() })).max(PAGE_SIZE),
+    }),
+  ]),
   output: z.object({ pullRequests: z.record(z.string(), z.array(pullRequest)) }),
 });
 

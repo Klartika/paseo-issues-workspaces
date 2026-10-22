@@ -236,6 +236,57 @@ describe("pullRequests", () => {
     expect(calls).toBe(2);
   });
 
+  it("asks for issues across repositories in one query, keyed by repository and number", async () => {
+    fake.gh = (args) => {
+      const { query } = searchFields(args);
+      expect(query).toContain('r0: repository(owner: "octo", name: "app") { i7: issue(number: 7)');
+      expect(query).toContain('r1: repository(owner: "cat", name: "dotfiles") { i7: issue(number: 7)');
+      return JSON.stringify({ data: { r0: { i7: connection([pr(1)]) }, r1: { i7: connection([]) } } });
+    };
+
+    const result = await mod.pullRequests({
+      issues: [
+        { repo: "octo/app", number: 7 },
+        { repo: "cat/dotfiles", number: 7 },
+        { repo: "octo/app", number: 7 },
+      ],
+    });
+
+    expect(result).toEqual({ pullRequests: { "octo/app#7": [pr(1)], "cat/dotfiles#7": [] } });
+    expect(ghCalls("api graphql")).toHaveLength(1);
+  });
+
+  it("leaves out a repository GitHub refuses, keeping the others", async () => {
+    // gh exits non-zero on any GraphQL error, with GitHub's answer on stdout.
+    fake.gh = () =>
+      Object.assign(ghError("gh: Could not resolve to a Repository"), {
+        stdout: JSON.stringify({
+          data: { r0: { i7: connection([pr(1)]) }, r1: null },
+          errors: [{ message: "Could not resolve to a Repository with the name 'cat/gone'." }],
+        }),
+      });
+
+    const result = await mod.pullRequests({
+      issues: [
+        { repo: "octo/app", number: 7 },
+        { repo: "cat/gone", number: 3 },
+      ],
+    });
+
+    expect(result).toEqual({ pullRequests: { "octo/app#7": [pr(1)] } });
+  });
+
+  it("fails across repositories only when nothing could be loaded", async () => {
+    fake.gh = () =>
+      Object.assign(ghError("gh: SAML"), {
+        stdout: JSON.stringify({ data: { r0: null }, errors: [{ message: "Resource protected by SAML enforcement" }] }),
+      });
+    await expect(mod.pullRequests({ issues: [{ repo: "octo/app", number: 7 }] })).rejects.toThrow("SAML enforcement");
+
+    fake.gh = () => ghError("API rate limit exceeded");
+    await expect(mod.pullRequests({ issues: [{ repo: "octo/app", number: 7 }] })).rejects.toThrow("API rate limit exceeded");
+  });
+
   it("makes no GitHub call for an empty page", async () => {
     expect(await mod.pullRequests({ repo: "octo/repo", numbers: [] })).toEqual({ pullRequests: {} });
     expect(fake.calls).toEqual([]);
@@ -862,6 +913,7 @@ describe("issuesPage across owners, for the All tab", () => {
   it("searches every owner at once, in the chosen order", async () => {
     fake.gh = ownersSearch([]);
     const { api } = fakePaseo({ projects: [] });
+    const listProjects = vi.spyOn(api.projects, "list");
 
     await mod.issuesPage(api, prefs(), {
       owners: ["octo-org", "octocat"],
@@ -879,6 +931,8 @@ describe("issuesPage across owners, for the All tab", () => {
         page: "3",
       },
     ]);
+    // An empty page needs no coverage.
+    expect(listProjects).not.toHaveBeenCalled();
   });
 
   it("names each issue's repository and this host's project on it, keeping GitHub's order", async () => {
