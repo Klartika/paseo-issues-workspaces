@@ -38,11 +38,13 @@ type Item = {
 };
 
 /**
- * GitHub's filters for one repository, shown in the issue table's header. Each menu edits the
- * search query, so the search box always shows what is applied. The sort menu sets the order.
+ * GitHub's filters for one repository, or for the All tab's owners, shown in the issue table's
+ * header. Each menu edits the search query, so the search box always shows what is applied. The
+ * sort menu sets the order.
  */
 export function FilterControls({
-  repo,
+  scope,
+  shownLabels = [],
   query,
   onQueryChange,
   sort,
@@ -54,7 +56,12 @@ export function FilterControls({
   theme,
   layout,
 }: Pick<PluginScreenProps, "theme" | "layout"> & {
-  repo: string;
+  scope: { repo: string } | { owners: string[] };
+  /**
+   * The labels on the issues shown. Across owners, the label menu offers these rather than every
+   * repository's labels, which would take a request per repository.
+   */
+  shownLabels?: { name: string; color: string }[];
   query: string;
   onQueryChange: (query: string) => void;
   sort: Sort;
@@ -69,8 +76,8 @@ export function FilterControls({
   const [buttons, setButtons] = useState<Partial<Record<MenuId, { x: number; width: number }>>>({});
   const [width, setWidth] = useState(0);
   const options = useQuery({
-    queryKey: ["issues.filter-options", repo],
-    queryFn: () => fetchOptions({ repo }),
+    queryKey: ["issues.filter-options", scope],
+    queryFn: () => fetchOptions(scope),
     staleTime: 5 * 60_000,
   });
   const dark = isDarkTheme(theme);
@@ -131,7 +138,8 @@ export function FilterControls({
             onPress: () => apply(setNone(query, "assignee", !hasNone(query, "assignee")), true),
           },
         };
-      case "label":
+      case "label": {
+        const labels = data.labels.length ? data.labels : labelsFromResults();
         return {
           none: {
             key: "none",
@@ -139,15 +147,16 @@ export function FilterControls({
             selected: hasNone(query, "label"),
             onPress: () => apply(setNone(query, "label", !hasNone(query, "label")), false),
           },
-          list: data.labels.map((l) => ({
+          list: labels.map((l) => ({
             key: l.name,
             label: l.name,
             description: l.description,
             selected: filterValues(query, "label").some((v) => v.toLowerCase() === l.name.toLowerCase()),
-            leading: <Dot color={labelColors(l.color, false).backgroundColor} />,
+            leading: <Dot color={l.color ? labelColors(l.color, false).backgroundColor : theme.colors.border} />,
             onPress: () => apply(toggleFilter(query, "label", l.name), false),
           })),
         };
+      }
       case "milestone":
         return {
           none: {
@@ -166,6 +175,16 @@ export function FilterControls({
           })),
         };
     }
+  }
+
+  /** The labels shown, plus those in the search, so a label filtering out every issue can be removed. */
+  function labelsFromResults(): { name: string; color: string | null; description: null }[] {
+    const seen = new Map<string, { name: string; color: string | null; description: null }>();
+    for (const l of shownLabels) seen.set(l.name.toLowerCase(), { name: l.name, color: l.color, description: null });
+    for (const name of filterValues(query, "label")) {
+      if (!seen.has(name.toLowerCase())) seen.set(name.toLowerCase(), { name, color: null, description: null });
+    }
+    return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
   }
 
   function singleChoice(key: FilterKey, value: string, description: string | null): Item {
@@ -213,7 +232,9 @@ export function FilterControls({
       </Pressable>
     );
   };
-  const buttonsRow = MENUS.map((m) => {
+  // Milestones belong to one repository.
+  const menus = "owners" in scope ? MENUS.filter((m) => m.id !== "milestone") : MENUS;
+  const buttonsRow = menus.map((m) => {
     const count = active(m.id);
     return menuButton(
       m.id,

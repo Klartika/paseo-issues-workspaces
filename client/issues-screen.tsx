@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View, type ScrollView as NativeScrollView } from "react-native";
 import {
+  ALL_TAB,
   assignedCountsRpc,
   createWorkspaceRpc,
   DEFAULT_PREFERENCES,
@@ -48,22 +49,23 @@ export function IssuesScreen({
   const createWorkspace = useRpc(createWorkspaceRpc);
   const queryClient = useQueryClient();
   const toast = useToast();
-  const [pending, setPending] = useState<number | null>(null);
+  // Issues are told apart by URL, since numbers repeat across the All tab's repositories.
+  const [pending, setPending] = useState<string | null>(null);
   // One menu at a time: filters, workspace creation, or an issue's PRs.
   const [openMenu, setFilterMenu] = useState<MenuId | null>(null);
-  const [createMenu, setCreateMenu] = useState<number | null>(null);
-  const [pullRequestsMenu, setPullRequestsMenu] = useState<number | null>(null);
+  const [createMenu, setCreateMenu] = useState<string | null>(null);
+  const [pullRequestsMenu, setPullRequestsMenu] = useState<string | null>(null);
   const setOpenMenu = (menu: MenuId | null) => {
     setFilterMenu(menu);
     setCreateMenu(null);
     setPullRequestsMenu(null);
   };
-  const openCreateMenu = (issue: number | null) => {
+  const openCreateMenu = (issue: string | null) => {
     setFilterMenu(null);
     setCreateMenu(issue);
     setPullRequestsMenu(null);
   };
-  const openPullRequestsMenu = (issue: number | null) => {
+  const openPullRequestsMenu = (issue: string | null) => {
     setFilterMenu(null);
     setCreateMenu(null);
     setPullRequestsMenu(issue);
@@ -101,8 +103,12 @@ export function IssuesScreen({
         })),
       ]
     : [];
-  const selected = pickProject(options, repoChoice ?? saved?.selectedRepo ?? "");
-  const showTabs = showProjectSelector(options);
+  const owners = prefs.owners;
+  const choice = repoChoice ?? saved?.selectedRepo ?? "";
+  // All is also the only choice when no project here is on GitHub.
+  const allSelected = owners.length > 0 && (choice === ALL_TAB || (projects.isSuccess && !options.length));
+  const selected = allSelected ? null : pickProject(options, choice);
+  const showTabs = owners.length > 0 || showProjectSelector(options);
   // Assigned-to-me counts for the tabs arrive separately, so they never hold up the page.
   const tabRepos = options.map((o) => o.repo);
   const counts = useQuery({
@@ -129,6 +135,12 @@ export function IssuesScreen({
     setOpenMenu(null);
     void savePreferences({ selectedRepo: option.repo.toLowerCase() });
   }
+  function selectAll() {
+    setRepoChoice(ALL_TAB);
+    setPage(1);
+    setOpenMenu(null);
+    void savePreferences({ selectedRepo: ALL_TAB });
+  }
 
   const create = useMutation({
     mutationFn: async ({ project, issue, action }: { project: ProjectOption; issue: Issue; action: CreateAction }) => {
@@ -143,7 +155,7 @@ export function IssuesScreen({
         prefs,
       });
     },
-    onMutate: ({ issue }) => setPending(issue.number),
+    onMutate: ({ issue }) => setPending(issue.url),
     onSuccess: (result, { project, issue }) => {
       const where = project.remote ? ` on ${project.remote.hostLabel}` : "";
       toast.show(
@@ -199,6 +211,7 @@ export function IssuesScreen({
           counts={counts.data?.counts}
           selectedKey={selected?.key ?? null}
           onSelect={selectProject}
+          all={owners.length ? { owners, selected: allSelected, onSelect: selectAll } : undefined}
           theme={theme}
           layout={layout}
         />
@@ -241,19 +254,20 @@ export function IssuesScreen({
 
       {projects.isPending ? <ActivityIndicator color={theme.colors.foregroundMuted} /> : null}
       {projects.isError ? <Text style={s.error}>Could not load projects: {message(projects.error)}</Text> : null}
-      {projects.data && !options.length ? (
+      {projects.data && !options.length && !owners.length ? (
         <Text style={s.muted}>
           None of your Paseo projects has a github.com remote. Add a GitHub repository as a project to see its issues
           here.
         </Text>
       ) : null}
 
-      {selected ? (
+      {selected || allSelected ? (
         <>
           {/* Above the screen's dismiss layer, so the header's dropdown can be pressed. */}
           <View style={{ zIndex: 6 }}>
             <RepoTable
-              project={selected}
+              project={selected ?? undefined}
+              owners={allSelected ? owners : undefined}
               query={query}
               sort={sort}
               page={page}
@@ -266,12 +280,17 @@ export function IssuesScreen({
               density={density}
               branchPrefix={prefs.branchPrefix}
               otherHostWorkspaces={others.data?.workspaces}
-              pendingNumber={pending}
+              pendingKey={pending}
               busy={pending !== null}
-              onCreate={(issue, action) => create.mutate({ project: selected, issue, action })}
+              onCreate={(issue, action) => {
+                // The All tab offers creation only for issues in one of this host's projects.
+                const project = selected ?? options.find((o) => !o.remote && o.projectId === issue.projectId);
+                if (project) create.mutate({ project, issue, action });
+                else toast.show(`#${issue.number}: no project on this host for ${issue.repo}`, { variant: "error" });
+              }}
               agentLabel={
                 (prefs.agent ||
-                  (selected.remote ? `${selected.remote.hostLabel}'s default agent` : "the host's default agent")) +
+                  (selected?.remote ? `${selected.remote.hostLabel}'s default agent` : "the host's default agent")) +
                 (prefs.effort ? ` at ${prefs.effort} effort` : "")
               }
               menuOpen={openMenu !== null}
@@ -280,9 +299,10 @@ export function IssuesScreen({
               pullRequestsFor={pullRequestsMenu}
               onPullRequestsMenu={openPullRequestsMenu}
               onDismissMenu={() => setOpenMenu(null)}
-              headerControls={
+              headerControls={(shown) => (
                 <FilterControls
-                  repo={selected.repo}
+                  scope={selected ? { repo: selected.repo } : { owners }}
+                  shownLabels={shown.flatMap((issue) => issue.labels)}
                   query={query}
                   onQueryChange={search}
                   sort={sort}
@@ -301,7 +321,7 @@ export function IssuesScreen({
                   theme={theme}
                   layout={layout}
                 />
-              }
+              )}
               theme={theme}
               layout={layout}
               navigation={navigation}

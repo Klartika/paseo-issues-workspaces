@@ -31,11 +31,15 @@ function ProjectIcon({
   return <Icon name="BookMarked" size={ICON_SIZE} color={color} />;
 }
 
-/** Picks the one project whose issues the screen shows, styled as Paseo's workspace tabs. */
+/**
+ * Picks the one project whose issues the screen shows, styled as Paseo's workspace tabs. The All
+ * tab, when there is one, comes first.
+ */
 export function ProjectSelector({
   options,
   selectedKey,
   onSelect,
+  all,
   counts,
   theme,
   layout,
@@ -43,9 +47,24 @@ export function ProjectSelector({
   options: ProjectOption[];
   selectedKey: string | null;
   onSelect: (option: ProjectOption) => void;
+  /** The All tab, for the issues of every repository of `owners`. */
+  all?: { owners: string[]; selected: boolean; onSelect: () => void };
   /** Open issues assigned to me, by repository; absent until they arrive. */
   counts?: Record<string, number>;
 }) {
+  const chip = (selected: boolean) => ({ hovered }: { pressed: boolean; hovered?: boolean }) => ({
+    height: CHIP_HEIGHT,
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    gap: 4,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    backgroundColor: selected ? theme.colors.surface2 : hovered ? theme.colors.surface1 : "transparent",
+  });
+  const name = (selected: boolean) => ({
+    color: selected ? theme.colors.foreground : theme.colors.foregroundMuted,
+    fontSize: 13,
+  });
   return (
     <View
       style={{
@@ -61,6 +80,20 @@ export function ProjectSelector({
           accessibilityLabel="Project"
           style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 4 }}
         >
+          {all ? (
+            <Pressable
+              accessibilityRole="tab"
+              aria-selected={all.selected}
+              accessibilityLabel={`All (${all.owners.join(", ")})`}
+              onPress={all.onSelect}
+              style={chip(all.selected)}
+            >
+              <Icon name="Layers" size={ICON_SIZE} color={theme.colors.foregroundMuted} />
+              <Text numberOfLines={1} style={name(all.selected)}>
+                All
+              </Text>
+            </Pressable>
+          ) : null}
           {options.map((o) => {
             const selected = o.key === selectedKey;
             const count = counts?.[o.repo];
@@ -74,21 +107,10 @@ export function ProjectSelector({
                 aria-selected={selected}
                 accessibilityLabel={`${o.projectName} (${o.repo}${also})${where}${assigned}`}
                 onPress={() => onSelect(o)}
-                style={({ hovered }: { pressed: boolean; hovered?: boolean }) => ({
-                  height: CHIP_HEIGHT,
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 4,
-                  paddingHorizontal: 8,
-                  borderRadius: 6,
-                  backgroundColor: selected ? theme.colors.surface2 : hovered ? theme.colors.surface1 : "transparent",
-                })}
+                style={chip(selected)}
               >
                 <ProjectIcon icon={o.icon} platform={layout.platform} color={theme.colors.foregroundMuted} />
-                <Text
-                  numberOfLines={1}
-                  style={{ color: selected ? theme.colors.foreground : theme.colors.foregroundMuted, fontSize: 13 }}
-                >
+                <Text numberOfLines={1} style={name(selected)}>
                   {o.projectName}
                 </Text>
                 {o.remote ? (

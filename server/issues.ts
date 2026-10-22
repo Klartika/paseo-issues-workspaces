@@ -205,17 +205,23 @@ type SearchItem = {
   labels: { name: string; color: string }[];
   user: { login: string } | null;
   created_at: string;
+  /** `https://api.github.com/repos/<owner>/<repo>` */
+  repository_url: string;
 };
 
+/** `owner/repo` of a search result. */
+const itemRepo = (item: SearchItem) => item.repository_url.split("/").slice(-2).join("/");
+
 /**
- * One page of open issues in `repo` matching `query`, in `sort` order, the way github.com lists
- * them. Uses the search API, which allows 30 searches a minute and 1,000 results per search.
+ * One page of open issues in `scope` (`repo:o/r`, or `user:a user:b`, which GitHub ORs) matching
+ * `query`, in `sort` order, the way github.com lists them. Uses the search API, which allows 30
+ * searches a minute and 1,000 results per search.
  */
-async function searchPage(repo: string, query: string, page: number, sort: Sort) {
+async function searchPage(scope: string, query: string, page: number, sort: Sort) {
   const [field, order] = sort.split("-");
   const { stdout } = await gh([
     "api", "--method", "GET", "search/issues",
-    "-f", `q=repo:${repo} is:issue state:open ${query}`.trim(),
+    "-f", `q=${scope} is:issue state:open ${query}`.trim(),
     "-f", `sort=${field}`, "-f", `order=${order}`,
     "-F", `per_page=${PAGE_SIZE}`, "-F", `page=${page}`,
   ]);
@@ -336,26 +342,58 @@ export async function issuesPage(
   {
     projectId,
     repo,
+    owners,
     query,
     page,
     sort = "created-desc",
-  }: { projectId?: string; repo?: string; query: string; page: number; sort?: Sort },
+  }: { projectId?: string; repo?: string; owners?: string[]; query: string; page: number; sort?: Sort },
 ) {
   await findGh();
-  const search = (slug: string) =>
-    searchPage(slug, normalizeQuery(query), page, sort).catch((error: unknown) => {
+  const search = (scope: string) =>
+    searchPage(scope, normalizeQuery(query), page, sort).catch((error: unknown) => {
       const text = errorText(error);
       throw new Error(SIGNED_OUT.test(text) ? "GitHub CLI is not signed in on this host. Run `gh auth login`." : text);
     });
   if (repo) {
-    const result = await search(repo);
+    const result = await search(`repo:${repo}`);
     return { issues: toIssues(result.items, prefs.branchPrefix, NO_COVERAGE), totalCount: result.totalCount };
   }
+  if (owners?.length) return ownersPage(paseo, prefs, await search(owners.map((o) => `user:${o}`).join(" ")));
   const { repos } = await githubRepos(await listProjects(paseo));
   const r = [...repos.values()].find((candidate) => candidate.projectIds.has(projectId ?? ""));
   if (!r) throw new Error("That project is no longer in Paseo, or no longer has a github.com remote");
-  const [result, context] = await Promise.all([search(r.repo), coverageContext(paseo, r)]);
+  const [result, context] = await Promise.all([search(`repo:${r.repo}`), coverageContext(paseo, r)]);
   return { issues: toIssues(result.items, prefs.branchPrefix, context), totalCount: result.totalCount };
+}
+
+/**
+ * The All tab's page: issues from many repositories, each marked with its repository and, when
+ * this host has a project on it, that project and its coverage.
+ */
+async function ownersPage(
+  paseo: PaseoApi,
+  prefs: Preferences,
+  result: { totalCount: number; items: SearchItem[] },
+) {
+  const [{ repos }, workspaces] = await Promise.all([
+    listProjects(paseo).then(githubRepos),
+    listWorkspaces(paseo),
+  ]);
+  const keys = [...new Set(result.items.map((item) => itemRepo(item).toLowerCase()))];
+  const contexts = new Map(
+    await Promise.all(
+      keys.map(async (key) => {
+        const local = repos.get(key);
+        return [key, { local, context: local ? await coverageContext(paseo, local, workspaces) : NO_COVERAGE }] as const;
+      }),
+    ),
+  );
+  const issues = result.items.map((item) => {
+    const { local, context } = contexts.get(itemRepo(item).toLowerCase())!;
+    const [issue] = toIssues([item], prefs.branchPrefix, context);
+    return { ...issue, repo: itemRepo(item), projectId: local?.primary.id ?? null };
+  });
+  return { issues, totalCount: result.totalCount };
 }
 
 /** Title, state, link and default branch for creating a workspace for issue `number` on another host. */
@@ -468,8 +506,10 @@ const jsonLines = <T>(stdout: string): T[] =>
 type Named = { name: string; color: string; description: string | null };
 
 /** Labels, milestones, people and issue types for the filter menus. A part that fails is left empty. */
-export async function filterOptions({ repo }: { repo: string }) {
+export async function filterOptions(input: { repo: string } | { owners: string[] }) {
   await findGh();
+  if ("owners" in input) return ownerFilterOptions(input.owners);
+  const { repo } = input;
   const [owner, name] = repo.split("/");
   const [me, labels, milestones, users, types] = await Promise.all([
     settle(gh(["api", "user", "--jq", ".login"]).then((r) => r.stdout.trim() || null)),
@@ -510,6 +550,44 @@ export async function filterOptions({ repo }: { repo: string }) {
       a.login === login ? -1 : b.login === login ? 1 : a.login.localeCompare(b.login),
     ),
     types: types.value ?? [],
+  };
+}
+
+/**
+ * The All tab's menus: you, and the issue types of the owners that are organizations. Labels,
+ * milestones and assignable people belong to each repository, so they are not fetched.
+ */
+async function ownerFilterOptions(owners: string[]) {
+  const [me, types] = await Promise.all([
+    settle(
+      gh(["api", "user", "--jq", "{login, avatarUrl: .avatar_url}"]).then(
+        (r) => JSON.parse(r.stdout) as { login: string; avatarUrl: string | null },
+      ),
+    ),
+    // A user account has no issue types; its lookup fails and adds none.
+    Promise.all(
+      owners.map((owner) =>
+        settle(
+          gh([
+            "api", "graphql",
+            "-f", "query=query($login:String!){organization(login:$login){issueTypes(first:50){nodes{name color description isEnabled}}}}",
+            "-f", `login=${owner}`,
+            "--jq", ".data.organization.issueTypes.nodes // [] | .[] | select(.isEnabled) | {name, color, description}",
+          ]).then((r) => jsonLines<Named>(r.stdout)),
+        ),
+      ),
+    ),
+  ]);
+  const unique = new Map<string, Named>();
+  for (const t of types.flatMap((result) => result.value ?? [])) {
+    if (!unique.has(t.name.toLowerCase())) unique.set(t.name.toLowerCase(), t);
+  }
+  return {
+    me: me.value?.login ?? null,
+    labels: [],
+    milestones: [],
+    users: me.value ? [me.value] : [],
+    types: [...unique.values()],
   };
 }
 

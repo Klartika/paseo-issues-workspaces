@@ -11,6 +11,7 @@ import {
   type CreateAction,
   type Density,
   type Issue,
+  type PullRequest,
   type Sort,
 } from "../shared/issues";
 import { isDarkTheme, openIssueColor } from "./github-style";
@@ -25,12 +26,16 @@ export const PULL_REQUESTS_QUERY_KEY = ["issues.pull-requests"];
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 const formatCount = (n: number) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 
+/** An issue's identity across repositories; numbers repeat in the All tab. */
+const issueKey = (issue: Issue) => issue.url;
+
 /**
- * The selected project's issues as a GitHub-style table with a pager. Each page is fetched
- * from GitHub when it is shown.
+ * The selected project's issues, or the All tab's issues across `owners`, as a GitHub-style table
+ * with a pager. Each page is fetched from GitHub when it is shown.
  */
 export function RepoTable({
   project,
+  owners,
   query,
   sort,
   page,
@@ -38,7 +43,7 @@ export function RepoTable({
   density,
   branchPrefix,
   otherHostWorkspaces,
-  pendingNumber,
+  pendingKey,
   busy,
   onCreate,
   agentLabel,
@@ -53,7 +58,10 @@ export function RepoTable({
   layout,
   navigation,
 }: Pick<PluginScreenProps, "theme" | "layout" | "navigation"> & {
-  project: ProjectOption;
+  /** The project shown; unused when `owners` is set. */
+  project?: ProjectOption;
+  /** GitHub owners whose issues the All tab shows. */
+  owners?: string[];
   query: string;
   sort: Sort;
   page: number;
@@ -62,21 +70,21 @@ export function RepoTable({
   branchPrefix: string;
   /** Every other host's workspaces: links for this host's issues, coverage for another host's project. */
   otherHostWorkspaces: RemoteWorkspace[] | undefined;
-  /** The issue number being created, if any. */
-  pendingNumber: number | null;
+  /** The URL of the issue being created, if any. */
+  pendingKey: string | null;
   busy: boolean;
   onCreate: (issue: Issue, action: CreateAction) => void;
   agentLabel: string;
-  /** Filters and density, shown at the right of the header as on github.com. */
-  headerControls?: ReactNode;
+  /** Filters and density for the issues shown, at the right of the header as on github.com. */
+  headerControls?: (issues: Issue[]) => ReactNode;
   /** A header menu is open: the rows are covered so pressing them closes it. */
   menuOpen?: boolean;
   onDismissMenu?: () => void;
-  /** The issue whose create menu is open. */
-  createMenuFor?: number | null;
-  onCreateMenu?: (issue: number | null) => void;
-  pullRequestsFor?: number | null;
-  onPullRequestsMenu?: (issue: number | null) => void;
+  /** The URL of the issue whose create menu is open. */
+  createMenuFor?: string | null;
+  onCreateMenu?: (issue: string | null) => void;
+  pullRequestsFor?: string | null;
+  onPullRequestsMenu?: (issue: string | null) => void;
 }) {
   const [tableWidth, setTableWidth] = useState(0);
   const rowLayout = { ...layout, compact: layout.compact || (tableWidth > 0 && tableWidth < 840) };
@@ -87,10 +95,14 @@ export function RepoTable({
   };
   const fetchPage = useRpc(issuesPageRpc);
   const result = useQuery({
-    queryKey: [...PAGE_QUERY_KEY, project.key, query, sort, page],
+    queryKey: [...PAGE_QUERY_KEY, owners ? `owners:${owners.join(",")}` : project?.key, query, sort, page],
     queryFn: () =>
       fetchPage(
-        project.remote ? { repo: project.repo, query, page, sort } : { projectId: project.projectId, query, page, sort },
+        owners
+          ? { owners, query, page, sort }
+          : project!.remote
+            ? { repo: project!.repo, query, page, sort }
+            : { projectId: project!.projectId, query, page, sort },
       ),
     // Keep the previous page on screen, dimmed, until the next one arrives.
     placeholderData: keepPreviousData,
@@ -98,20 +110,37 @@ export function RepoTable({
     staleTime: 60_000,
   });
 
-  const remote = project.remote;
+  const remote = owners ? undefined : project?.remote;
   const raw = result.data?.issues ?? [];
+  const repoOf = (issue: Issue) => issue.repo ?? project?.repo ?? "";
   const fetchPullRequests = useRpc(pullRequestsRpc);
-  const numbers = raw.map((issue) => issue.number);
+  // The issue numbers on the page by repository; the All tab's page spans several.
+  const numbers: Record<string, number[]> = {};
+  for (const issue of raw) (numbers[repoOf(issue)] ??= []).push(issue.number);
   const prs = useQuery({
-    queryKey: [...PULL_REQUESTS_QUERY_KEY, project.repo, numbers],
-    queryFn: () => fetchPullRequests({ repo: project.repo, numbers }),
-    enabled: numbers.length > 0 && !result.isPlaceholderData && result.isSuccess,
+    queryKey: [...PULL_REQUESTS_QUERY_KEY, numbers],
+    queryFn: async () => {
+      const repos = Object.entries(numbers);
+      const results = await Promise.allSettled(
+        repos.map(([repo, list]) => fetchPullRequests({ repo, numbers: list })),
+      );
+      // One repository GitHub refuses leaves the others' PR status; only a total failure is an error.
+      const failed = results.find((r) => r.status === "rejected");
+      if (failed && results.every((r) => r.status === "rejected")) throw failed.reason;
+      const out: Record<string, PullRequest[]> = {};
+      results.forEach((r, i) => {
+        if (r.status !== "fulfilled") return;
+        for (const [n, list] of Object.entries(r.value.pullRequests)) out[`${repos[i][0]}#${n}`] = list;
+      });
+      return out;
+    },
+    enabled: raw.length > 0 && !result.isPlaceholderData && result.isSuccess,
     staleTime: 30_000,
     refetchInterval: 60_000,
   });
   // Another host's project is covered by that host's workspaces; the server only knows this host's.
   const issues = remote
-    ? withRemoteCoverage(raw, otherHostWorkspaces, remote.serverId, project.repo, branchPrefix)
+    ? withRemoteCoverage(raw, otherHostWorkspaces, remote.serverId, project!.repo, branchPrefix)
     : raw;
   const totalCount = result.data?.totalCount ?? 0;
   const stale = result.isPlaceholderData;
@@ -163,7 +192,7 @@ export function RepoTable({
               <ActivityIndicator size="small" color={theme.colors.foregroundMuted} />
             ) : null}
           </View>
-          {headerControls}
+          {headerControls?.(raw)}
         </View>
         {!rowLayout.compact ? (
           <View style={{ flexDirection: "row", gap: 8, paddingLeft: 40, paddingRight: 16, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
@@ -204,25 +233,27 @@ export function RepoTable({
           ) : null}
           {issues.map((issue, index) => (
             <IssueRow
-              key={issue.number}
+              key={issueKey(issue)}
               issue={issue}
-              pullRequests={stale ? undefined : prs.data?.pullRequests[issue.number]}
+              showRepo={Boolean(owners)}
+              pullRequests={stale ? undefined : prs.data?.[`${repoOf(issue)}#${issue.number}`]}
               density={density}
               elsewhere={
                 remote || issue.workspace
                   ? []
-                  : findRemoteWorkspaces(otherHostWorkspaces, project.repo, issue.number, branchPrefix)
+                  : findRemoteWorkspaces(otherHostWorkspaces, repoOf(issue), issue.number, branchPrefix)
               }
               first={index === 0}
-              pending={pendingNumber === issue.number}
+              pending={pendingKey === issueKey(issue)}
               busy={busy}
-              onCreate={(action) => onCreate(issue, action)}
+              // In the All tab, only an issue whose repository is one of this host's projects can get a workspace.
+              onCreate={owners && !issue.projectId ? undefined : (action) => onCreate(issue, action)}
               agentLabel={agentLabel}
               workspaceServerId={remote?.serverId}
-              menuOpen={createMenuFor === issue.number}
-              onMenuOpenChange={(open) => onCreateMenu?.(open ? issue.number : null)}
-              pullRequestsOpen={!stale && pullRequestsFor === issue.number}
-              onPullRequestsOpenChange={(open) => onPullRequestsMenu?.(open ? issue.number : null)}
+              menuOpen={createMenuFor === issueKey(issue)}
+              onMenuOpenChange={(open) => onCreateMenu?.(open ? issueKey(issue) : null)}
+              pullRequestsOpen={!stale && pullRequestsFor === issueKey(issue)}
+              onPullRequestsOpenChange={(open) => onPullRequestsMenu?.(open ? issueKey(issue) : null)}
               theme={theme}
               layout={rowLayout}
               navigation={navigation}

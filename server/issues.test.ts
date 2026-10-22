@@ -844,6 +844,76 @@ describe("issuesPage for another host's repository", () => {
   });
 });
 
+describe("issuesPage across owners, for the All tab", () => {
+  const inRepo = (repo: string, number: number) =>
+    issue(number, {
+      html_url: `https://github.com/${repo}/issues/${number}`,
+      repository_url: `https://api.github.com/repos/${repo}`,
+    });
+
+  /** Answers every search with `items`, as GitHub would for the owners asked. */
+  function ownersSearch(items: unknown[]) {
+    return (args: string[]): GhReply => {
+      if (!args.join(" ").startsWith("api --method GET search/issues")) throw new Error(`unexpected gh ${args.join(" ")}`);
+      return JSON.stringify({ total_count: 1234, items });
+    };
+  }
+
+  it("searches every owner at once, in the chosen order", async () => {
+    fake.gh = ownersSearch([]);
+    const { api } = fakePaseo({ projects: [] });
+
+    await mod.issuesPage(api, prefs(), {
+      owners: ["octo-org", "octocat"],
+      query: " label:bug ",
+      page: 3,
+      sort: "comments-desc",
+    });
+
+    expect(searches()).toEqual([
+      {
+        q: "user:octo-org user:octocat is:issue state:open label:bug",
+        sort: "comments",
+        order: "desc",
+        per_page: "25",
+        page: "3",
+      },
+    ]);
+  });
+
+  it("names each issue's repository and this host's project on it, keeping GitHub's order", async () => {
+    const main = await gitRepo({ origin: "git@github.com:octo-org/App.git" });
+    fake.gh = ownersSearch([inRepo("octo-org/app", 7), inRepo("octocat/dotfiles", 7), inRepo("octo-org/app", 2)]);
+    const { api } = fakePaseo({ projects: [{ id: "p-app", name: "app", root: main }] });
+
+    const result = await mod.issuesPage(api, prefs(), { owners: ["octo-org", "octocat"], query: "", page: 1 });
+
+    expect(result.totalCount).toBe(1234);
+    expect(result.issues.map((i) => [i.repo, i.number, i.projectId])).toEqual([
+      ["octo-org/app", 7, "p-app"],
+      ["octocat/dotfiles", 7, null],
+      ["octo-org/app", 2, "p-app"],
+    ]);
+  });
+
+  it("marks coverage only from the project on the issue's own repository", async () => {
+    const main = await gitRepo({ origin: "git@github.com:octo-org/app.git" }, ["issue/2-old"]);
+    fake.gh = ownersSearch([inRepo("octo-org/app", 7), inRepo("octocat/dotfiles", 7), inRepo("octo-org/app", 2)]);
+    const { api } = fakePaseo({
+      projects: [{ id: "p-app", name: "app", root: main }],
+      workspaces: [{ id: "w7", title: "#7 Fix it", projectId: "p-app" }],
+    });
+
+    const { issues } = await mod.issuesPage(api, prefs(), { owners: ["octo-org"], query: "", page: 1 });
+
+    expect(issues.map((i) => [i.workspace?.id ?? null, i.orphanBranch])).toEqual([
+      ["w7", null],
+      [null, null],
+      [null, "issue/2-old"],
+    ]);
+  });
+});
+
 describe("issueDetails", () => {
   it("returns what creating on another host needs", async () => {
     fake.gh = creationGh({ title: "Crash", defaultBranch: "develop" });
@@ -947,6 +1017,38 @@ describe("filterOptions", () => {
   it("says how to install gh when it is missing", async () => {
     fake.ghInstalled = false;
     await expect(mod.filterOptions({ repo: "octo/repo" })).rejects.toThrow("is not installed");
+  });
+
+  it("offers you and the owners' issue types across owners, with no per-repository lists", async () => {
+    fake.gh = (args) => {
+      const line = args.join(" ");
+      if (line.startsWith("api user")) return '{"login":"ajma","avatarUrl":"a.png"}\n';
+      if (line.startsWith("api graphql") && args.includes("login=octocat")) {
+        return ghError("Could not resolve to an Organization with the login of 'octocat'.");
+      }
+      if (line.startsWith("api graphql")) {
+        return '{"name":"Bug","color":"RED","description":null}\n{"name":"Task","color":"YELLOW","description":null}\n';
+      }
+      throw new Error(`unexpected gh ${line}`);
+    };
+
+    expect(await mod.filterOptions({ owners: ["octo-org", "octocat", "other-org"] })).toEqual({
+      me: "ajma",
+      labels: [],
+      milestones: [],
+      users: [{ login: "ajma", avatarUrl: "a.png" }],
+      types: [
+        { name: "Bug", color: "RED", description: null },
+        { name: "Task", color: "YELLOW", description: null },
+      ],
+    });
+    // As a string field (-f): gh's -F would send an all-digit login as a number.
+    const logins = ghCalls("api graphql").map((c) => c.args.slice(c.args.findIndex((a) => a.startsWith("login=")) - 1));
+    expect(logins.map(([flag, login]) => `${flag} ${login}`)).toEqual([
+      "-f login=octo-org",
+      "-f login=octocat",
+      "-f login=other-org",
+    ]);
   });
 });
 

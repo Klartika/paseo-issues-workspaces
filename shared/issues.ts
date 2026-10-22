@@ -40,6 +40,21 @@ export function renderPrompt(template: string, values: Record<(typeof PROMPT_PLA
   return template.replace(/\{(number|title|url|repo)\}/g, (_match, key: keyof typeof values) => values[key]);
 }
 
+/** `selectedRepo` when the All tab is picked; no `owner/repo` looks like it. */
+export const ALL_TAB = "*";
+
+/** Most owners the All tab searches at once, which keeps the search query short. */
+export const MAX_OWNERS = 20;
+
+const OWNER = /^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$/;
+
+/** GitHub logins from text separated by commas or spaces, deduplicated; null when one is not a login. */
+export function parseOwners(text: string): string[] | null {
+  const words = text.split(/[\s,]+/).filter(Boolean);
+  if (words.length > MAX_OWNERS || words.some((w) => !OWNER.test(w))) return null;
+  return words.filter((w, i) => words.findIndex((o) => o.toLowerCase() === w.toLowerCase()) === i);
+}
+
 export const preferences = defineSettings({
   id: "preferences",
   scope: "host",
@@ -59,6 +74,8 @@ export const preferences = defineSettings({
     effort: z.string().default(""),
     /** The first message "Create and start" sends the agent. */
     agentPrompt: z.string().default(DEFAULT_AGENT_PROMPT),
+    /** GitHub organizations or users whose open issues the All tab searches; empty hides the tab. */
+    owners: z.array(z.string()).default([]),
   }),
 });
 export type Preferences = z.infer<typeof preferences.schema>;
@@ -91,6 +108,7 @@ export function effectivePreferences(values: Preferences): Preferences {
     agent: values.agent,
     effort: values.effort,
     agentPrompt: effectiveAgentPrompt(values.agentPrompt),
+    owners: values.owners.filter((o) => OWNER.test(o)).slice(0, MAX_OWNERS),
   };
 }
 
@@ -204,6 +222,10 @@ const issue = z.object({
   workspace: z.object({ id: z.string(), name: z.string() }).nullable(),
   /** A local branch for this issue with no active workspace (e.g. the workspace was archived). */
   orphanBranch: z.string().nullable(),
+  /** `owner/repo` the issue is in. Set in the All tab, whose issues span repositories. */
+  repo: z.string().optional(),
+  /** In the All tab, this host's project on the issue's repository; null when there is none. */
+  projectId: z.string().nullable().optional(),
 });
 export type Issue = z.infer<typeof issue>;
 
@@ -255,29 +277,41 @@ export const projectsRpc = defineRpc({
   }),
 });
 
-/** One page of open issues in one repository, in the chosen order. */
+const owners = z.array(z.string().regex(OWNER)).min(1).max(MAX_OWNERS);
+
+/** One page of open issues in one repository, or across owners for the All tab, in the chosen order. */
 export const issuesPageRpc = defineRpc({
   name: "issues.page",
-  /** `projectId` for this host's projects; `repo` for a repository only another host has. */
+  /**
+   * `projectId` for this host's projects; `repo` for a repository only another host has; `owners`
+   * for every repository of those GitHub organizations and users.
+   */
   input: z
     .object({
       projectId: z.string().optional(),
       repo: z.string().optional(),
+      owners: owners.optional(),
       /** GitHub's issue search syntax; `is:issue state:open` is implied. */
       query: z.string().max(1000),
       page: z.number().int().min(1),
       sort: z.enum(SORTS).default("created-desc"),
     })
-    .refine((v) => Boolean(v.projectId) !== Boolean(v.repo), "Pass exactly one of projectId and repo"),
+    .refine(
+      (v) => [v.projectId, v.repo, v.owners].filter(Boolean).length === 1,
+      "Pass exactly one of projectId, repo and owners",
+    ),
   output: z.object({ issues: z.array(issue), totalCount: z.number() }),
 });
 
 const named = z.object({ name: z.string(), color: z.string(), description: z.string().nullable() });
 
-/** What the filter menus offer for one repository. */
+/**
+ * What the filter menus offer for one repository. For `owners` only the signed-in user and the
+ * organizations' issue types are known; the screen takes labels from the issues it shows.
+ */
 export const filterOptionsRpc = defineRpc({
   name: "issues.filter-options",
-  input: z.object({ repo: z.string() }),
+  input: z.union([z.object({ repo: z.string() }), z.object({ owners })]),
   output: z.object({
     /** The signed-in GitHub login, which `@me` stands for. */
     me: z.string().nullable(),

@@ -70,16 +70,20 @@ function serveProjects(repos: RepoProject[], skipped: { projectName: string; rea
   host.rpcs.set("issues.projects", async () => ({ repos, skipped }));
 }
 
-type PageRequest = { projectId?: string; repo?: string; query: string; page: number; sort: string };
+type PageRequest = { projectId?: string; repo?: string; owners?: string[]; query: string; page: number; sort: string };
 
-/** Fakes issues.page from every match per project id or repository, 25 to a page, recording requests. */
+/**
+ * Fakes issues.page from every match per project id, repository, or `owners:a,b` for the All tab,
+ * 25 to a page, recording requests.
+ */
 function servePages(table: Record<string, Issue[] | Error>) {
   const requests: PageRequest[] = [];
   host.rpcs.set("issues.page", async (input) => {
     const request = input as PageRequest;
     requests.push(request);
-    const all = table[request.projectId ?? request.repo ?? ""];
-    if (all === undefined) throw new Error(`no fixture for ${request.projectId ?? request.repo}`);
+    const key = request.projectId ?? request.repo ?? `owners:${request.owners?.join(",")}`;
+    const all = table[key];
+    if (all === undefined) throw new Error(`no fixture for ${key}`);
     if (all instanceof Error) throw all;
     return { issues: all.slice((request.page - 1) * 25, request.page * 25), totalCount: all.length };
   });
@@ -732,6 +736,145 @@ describe("issues screen: project picker", () => {
 });
 
 // --- Search -------------------------------------------------------------------------------------
+
+describe("issues screen: All tab", () => {
+  const owners = ["octo-org", "octocat"];
+  const inRepo = (repo: string, number: number, projectId: string | null, overrides: Partial<Issue> = {}) =>
+    issue(number, {
+      url: `https://github.com/${repo}/issues/${number}`,
+      repo,
+      projectId,
+      title: `${repo} ${number}`,
+      ...overrides,
+    });
+  const acrossOwners = [
+    inRepo("octo-org/app", 7, "p-octo-org/app", { labels: [{ name: "bug", color: "d73a4a" }] }),
+    inRepo("octocat/dotfiles", 7, null, { labels: [{ name: "chore", color: "ededed" }, { name: "bug", color: "d73a4a" }] }),
+  ];
+
+  function setUp(overrides: Partial<Preferences> = {}) {
+    const saves = readySettings(prefs({ owners, ...overrides }));
+    serveProjects([project("octo-org/app")]);
+    const optionRequests = serveOptions();
+    const requests = servePages({ "p-octo-org/app": [issue(1)], "owners:octo-org,octocat": acrossOwners });
+    renderScreen();
+    return { saves, requests, optionRequests };
+  }
+
+  it("is the first tab when owners are set, even with one project", async () => {
+    setUp();
+    await screen.findByText("Issue 1");
+
+    expect(screen.getAllByRole("tab").map((t) => [t.getAttribute("aria-label"), t.getAttribute("aria-selected")])).toEqual([
+      ["All (octo-org, octocat)", "false"],
+      ["app (octo-org/app)", "true"],
+    ]);
+  });
+
+  it("searches across the owners, names each repository, and saves the choice", async () => {
+    const { saves, requests } = setUp();
+    fireEvent.click(await screen.findByRole("tab", { name: /^All/ }));
+
+    expect(await screen.findByText("octo-org/app 7")).toBeTruthy();
+    expect(requests.at(-1)).toEqual({ owners, query: "assignee:@me", page: 1, sort: "created-desc" });
+    expect(screen.getByText(/^octo-org\/app #7 opened/)).toBeTruthy();
+    expect(screen.getByText(/^octocat\/dotfiles #7 opened/)).toBeTruthy();
+    await waitFor(() => expect(saves.at(-1)?.selectedRepo).toBe("*"));
+  });
+
+  it("creates the workspace in this host's project on the repository, else links to GitHub", async () => {
+    setUp({ selectedRepo: "*" });
+    const creates = serveCreate();
+    await screen.findByText("octo-org/app 7");
+
+    expect(screen.getAllByRole("button", { name: "Create workspace for issue 7" })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Create workspace for issue 7" }));
+    await waitFor(() => expect(creates).toEqual([{ projectId: "p-octo-org/app", number: 7, action: "create" }]));
+
+    fireEvent.click(screen.getByRole("link", { name: "Open issue 7 on GitHub, no project here for octocat/dotfiles" }));
+    expect(host.opened).toEqual(["https://github.com/octocat/dotfiles/issues/7"]);
+  });
+
+  it("asks for PR status once per repository and shows each on its own issue", async () => {
+    const requests: unknown[] = [];
+    host.rpcs.set("issues.pull-requests", async (input) => {
+      requests.push(input);
+      const { repo } = input as { repo: string };
+      return { pullRequests: repo === "octocat/dotfiles" ? { "7": [pullRequest({ number: 9, title: "Dotfiles fix" })] } : {} };
+    });
+    setUp({ selectedRepo: "*" });
+
+    expect(await screen.findByRole("link", { name: "Open pull request 9 on GitHub: Dotfiles fix" })).toBeTruthy();
+    expect(requests).toEqual([
+      { repo: "octo-org/app", numbers: [7] },
+      { repo: "octocat/dotfiles", numbers: [7] },
+    ]);
+    expect(screen.getAllByRole("link", { name: /^Open pull request/ })).toHaveLength(1);
+  });
+
+  it("filters without Milestones, offering the labels on the issues shown", async () => {
+    const { optionRequests, requests } = setUp({ selectedRepo: "*", searchQuery: "label:wontfix" });
+    await screen.findByText("octo-org/app 7");
+
+    await waitFor(() => expect(optionRequests).toEqual([{ owners }]));
+    expect(screen.queryByRole("button", { name: /^Milestones/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /^Labels/ }));
+    const menu = screen.getByRole("menu");
+    expect(within(menu).getAllByRole("menuitem").map((i) => i.getAttribute("aria-label"))).toEqual([
+      "No labels",
+      "bug",
+      "chore",
+      "wontfix",
+    ]);
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "chore" }));
+    await waitFor(() => expect(requests.at(-1)?.query).toBe("label:wontfix label:chore"));
+  });
+
+  it("keeps the PR status of the repositories GitHub answers for", async () => {
+    host.rpcs.set("issues.pull-requests", async (input) => {
+      const { repo } = input as { repo: string };
+      if (repo === "octo-org/app") throw new Error("SAML enforcement");
+      return { pullRequests: { "7": [pullRequest({ number: 9, title: "Dotfiles fix" })] } };
+    });
+    setUp({ selectedRepo: "*" });
+
+    expect(await screen.findByRole("link", { name: "Open pull request 9 on GitHub: Dotfiles fix" })).toBeTruthy();
+    expect(screen.queryByText(/Could not load PR status/)).toBeNull();
+  });
+
+  it("opens on the All tab when no project here is on GitHub", async () => {
+    readySettings(prefs({ owners }));
+    serveProjects([]);
+    serveOptions();
+    servePages({ "owners:octo-org,octocat": acrossOwners });
+    renderScreen();
+
+    expect(await screen.findByText("octo-org/app 7")).toBeTruthy();
+    expect(screen.getByRole("tab", { name: /^All/ }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.queryByText(/None of your Paseo projects/)).toBeNull();
+  });
+
+  it("says so instead of doing nothing when the issue's project is not loaded", async () => {
+    readySettings(prefs({ owners, selectedRepo: "*" }));
+    host.rpcs.set("issues.projects", async () => {
+      throw new Error("daemon busy");
+    });
+    serveOptions();
+    servePages({ "owners:octo-org,octocat": acrossOwners });
+    renderScreen();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Create workspace for issue 7" }));
+
+    expect(host.toasts).toEqual([{ message: "#7: no project on this host for octo-org/app", variant: "error" }]);
+  });
+
+  it("goes back to the projects when the owners are cleared", async () => {
+    setUp({ owners: [], selectedRepo: "*" });
+
+    expect(await screen.findByText("Issue 1")).toBeTruthy();
+    expect(screen.queryAllByRole("tab")).toEqual([]);
+  });
+});
 
 describe("issues screen: search", () => {
   it("shows the query without the implied is:issue state:open", async () => {
