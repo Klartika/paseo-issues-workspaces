@@ -33,7 +33,7 @@ Install a checkout with `paseo plugin install "$PWD"`; it installs as `issues-wo
 - `issues.projects`: this host's git projects with a github.com remote, one entry per repo, each with its icon. Makes no GitHub calls.
 - `issues.page`: one page (25) of a repo's open issues in the chosen sort order via the GitHub **search API** (`gh api search/issues`, 30 searches/min, 1,000-result cap). It also marks coverage. Takes `projectId` for this host's projects, `repo` for a project only another host has, or `owners` for the All tab (`user:<owner>` per owner, one search; each issue then carries its `repo` and this host's `projectId` on it, or null).
 - `issues.filter-options`: labels, milestones, assignable users, org issue types, and the signed-in login. For `owners` only the login and the orgs' issue types; the client's Labels menu then offers the labels on the issues shown.
-- `issues.assigned-counts`: open issues assigned to me per repo for the tab badges, in one GraphQL request (GraphQL budget, not the REST search limit). Fetched separately so it never blocks the page.
+- `issues.assigned-counts`: open issues assigned to me per repo for the tab badges, and across `owners` under `*` for the All tab, in one GraphQL request (GraphQL budget, not the REST search limit). Fetched separately so it never blocks the page.
 - `issues.create-workspace`: creates a worktree workspace on this host; with `action: "agent"` it also starts an agent with the agent prompt.
 - `issues.details`: issue title/state and the repo's default branch, used when creating on another host.
 

@@ -1,6 +1,7 @@
 import { execCommand, type PluginHandlerContext } from "@getpaseo/plugin/server";
 import { paseoHome, projectIcon } from "./project-icons";
 import {
+  ALL_TAB,
   branchName,
   defaultAgent,
   issueMatcher,
@@ -219,14 +220,19 @@ const itemRepo = (item: SearchItem) => item.repository_url.split("/").slice(-2).
  */
 async function searchPage(scope: string, query: string, page: number, sort: Sort) {
   const [field, order] = sort.split("-");
-  const { stdout } = await gh([
-    "api", "--method", "GET", "search/issues",
-    "-f", `q=${scope} is:issue state:open ${query}`.trim(),
-    "-f", `sort=${field}`, "-f", `order=${order}`,
-    "-F", `per_page=${PAGE_SIZE}`, "-F", `page=${page}`,
-  ]);
-  const result = JSON.parse(stdout) as { total_count: number; items: SearchItem[] };
-  return { totalCount: result.total_count, items: result.items };
+  // A search that times out on GitHub's side comes back as zero results marked incomplete; searches
+  // across several owners do now and then. Ask once more, then say so rather than show no issues.
+  for (let attempt = 1; ; attempt++) {
+    const { stdout } = await gh([
+      "api", "--method", "GET", "search/issues",
+      "-f", `q=${scope} is:issue state:open ${query}`.trim(),
+      "-f", `sort=${field}`, "-f", `order=${order}`,
+      "-F", `per_page=${PAGE_SIZE}`, "-F", `page=${page}`,
+    ]);
+    const result = JSON.parse(stdout) as { total_count: number; incomplete_results?: boolean; items: SearchItem[] };
+    if (!result.incomplete_results || result.items.length) return { totalCount: result.total_count, items: result.items };
+    if (attempt === 2) throw new Error("GitHub's search timed out before finding any issues. Refresh to try again.");
+  }
 }
 
 /** What coverage needs to know about one repository: its workspaces and local branches. */
@@ -656,21 +662,24 @@ async function ownerFilterOptions(owners: string[]) {
 }
 
 /**
- * Open issues assigned to me in each repository, in one GraphQL request. GraphQL search has
- * its own budget, so these counts don't use the REST search's 30 a minute. Failure gives no counts.
+ * Open issues assigned to me in each repository, and across `owners` for the All tab under
+ * `ALL_TAB`, in one GraphQL request. GraphQL search has its own budget, so these counts don't use
+ * the REST search's 30 a minute. Failure gives no counts.
  */
-export async function assignedCounts({ repos }: { repos: string[] }) {
-  if (!repos.length) return { counts: {} as Record<string, number> };
-  const fields = repos.map((_, i) => `r${i}: search(query: $q${i}, type: ISSUE, first: 0) { issueCount }`);
-  const query = `query(${repos.map((_, i) => `$q${i}: String!`).join(", ")}) { ${fields.join(" ")} }`;
+export async function assignedCounts({ repos, owners = [] }: { repos: string[]; owners?: string[] }) {
+  const scopes = repos.map((repo) => [repo, `repo:${repo}`]);
+  if (owners.length) scopes.push([ALL_TAB, owners.map((o) => `user:${o}`).join(" ")]);
+  if (!scopes.length) return { counts: {} as Record<string, number> };
+  const fields = scopes.map((_, i) => `r${i}: search(query: $q${i}, type: ISSUE, first: 0) { issueCount }`);
+  const query = `query(${scopes.map((_, i) => `$q${i}: String!`).join(", ")}) { ${fields.join(" ")} }`;
   const args = ["api", "graphql", "-f", `query=${query}`];
-  repos.forEach((repo, i) => args.push("-f", `q${i}=repo:${repo} is:issue is:open assignee:@me`));
+  scopes.forEach(([, scope], i) => args.push("-f", `q${i}=${scope} is:issue is:open assignee:@me`));
   try {
     const { data } = JSON.parse((await gh(args)).stdout) as { data: Record<string, { issueCount: number } | null> };
     const counts: Record<string, number> = {};
-    repos.forEach((repo, i) => {
+    scopes.forEach(([key], i) => {
       const count = data?.[`r${i}`]?.issueCount;
-      if (typeof count === "number") counts[repo] = count;
+      if (typeof count === "number") counts[key] = count;
     });
     return { counts };
   } catch (error) {

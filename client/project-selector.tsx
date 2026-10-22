@@ -1,6 +1,7 @@
 import type { PluginScreenProps } from "@getpaseo/plugin/client";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { Image, Pressable, ScrollView, Text, View } from "react-native";
+import { ALL_TAB } from "../shared/issues";
 import type { ProjectOption } from "./issue-list";
 
 // Paseo's workspace tab row (workspace-desktop-tabs-row.tsx): a 36pt strip of 28pt chips.
@@ -49,7 +50,7 @@ export function ProjectSelector({
   onSelect: (option: ProjectOption) => void;
   /** The All tab, for the issues of every repository of `owners`. */
   all?: { owners: string[]; selected: boolean; onSelect: () => void };
-  /** Open issues assigned to me, by repository; absent until they arrive. */
+  /** Open issues assigned to me, by repository and `ALL_TAB`; absent until they arrive. */
   counts?: Record<string, number>;
 }) {
   const chip = (selected: boolean) => ({ hovered }: { pressed: boolean; hovered?: boolean }) => ({
@@ -65,6 +66,22 @@ export function ProjectSelector({
     color: selected ? theme.colors.foreground : theme.colors.foregroundMuted,
     fontSize: 13,
   });
+  const badge = (count: number | undefined, selected: boolean) =>
+    count !== undefined ? (
+      <View
+        style={{
+          minWidth: 18,
+          paddingHorizontal: 5,
+          borderRadius: 9,
+          backgroundColor: selected ? theme.colors.surface0 : theme.colors.surface2,
+        }}
+      >
+        <Text style={{ color: theme.colors.foregroundMuted, fontSize: 11, textAlign: "center", lineHeight: 16 }}>
+          {count}
+        </Text>
+      </View>
+    ) : null;
+  const allCount = counts?.[ALL_TAB];
   return (
     <View
       style={{
@@ -84,7 +101,7 @@ export function ProjectSelector({
             <Pressable
               accessibilityRole="tab"
               aria-selected={all.selected}
-              accessibilityLabel={`All (${all.owners.join(", ")})`}
+              accessibilityLabel={`All (${all.owners.join(", ")})${allCount === undefined ? "" : `, ${allCount} assigned to you`}`}
               onPress={all.onSelect}
               style={chip(all.selected)}
             >
@@ -92,6 +109,7 @@ export function ProjectSelector({
               <Text numberOfLines={1} style={name(all.selected)}>
                 All
               </Text>
+              {badge(allCount, all.selected)}
             </Pressable>
           ) : null}
           {options.map((o) => {
@@ -116,20 +134,7 @@ export function ProjectSelector({
                 {o.remote ? (
                   <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12 }}>{o.remote.hostLabel}</Text>
                 ) : null}
-                {count !== undefined ? (
-                  <View
-                    style={{
-                      minWidth: 18,
-                      paddingHorizontal: 5,
-                      borderRadius: 9,
-                      backgroundColor: selected ? theme.colors.surface0 : theme.colors.surface2,
-                    }}
-                  >
-                    <Text style={{ color: theme.colors.foregroundMuted, fontSize: 11, textAlign: "center", lineHeight: 16 }}>
-                      {count}
-                    </Text>
-                  </View>
-                ) : null}
+                {badge(count, selected)}
               </Pressable>
             );
           })}

@@ -10,7 +10,7 @@ A [Paseo](https://paseo.sh) plugin that shows a project's open GitHub issues, la
 - **GitHub's search syntax.** The search box starts at `assignee:@me`. The Author, Labels, Milestones, Assignees and Types menus edit the search text, so the box always shows what is applied.
 - **GitHub's sort orders.** Newest, oldest, recently updated, least recently updated, most commented or most reactions, picked from the sort menu in the table header and remembered.
 - **One tab per project.** Each tab has the project's Paseo icon and a count of the open issues assigned to you.
-- **An All tab across your organizations.** List GitHub organizations or users under **Owners** in the settings, and a first tab searches the open issues of all their repositories, naming each issue's repository. Issues in a repository you have as a project get a workspace as usual; the rest link to GitHub.
+- **An All tab across your organizations.** List GitHub organizations or users under **Owners** in the settings, and a first tab searches the open issues of all their repositories, naming each issue's repository, with a count of those assigned to you. Issues in a repository you have as a project get a workspace as usual; the rest link to GitHub.
 - **Create workspace** creates a worktree on a new `issue/<number>-<slug>` branch from a freshly fetched default branch, titled `#<number> <title>`.
 - **Create and start an agent** also starts an agent in the new workspace with a prompt you can edit. Pick it from the arrow beside the button, as on GitHub.
 - **Knows what you already started.** An issue with a workspace shows **Open workspace** instead, including workspaces on other connected hosts. A leftover local branch blocks a duplicate.

@@ -910,6 +910,27 @@ describe("issuesPage across owners, for the All tab", () => {
     };
   }
 
+  it("asks again when GitHub's search times out with nothing, then says so instead of showing no issues", async () => {
+    let answers = 0;
+    fake.gh = () => JSON.stringify({ total_count: 0, incomplete_results: true, items: [], n: ++answers });
+    const { api } = fakePaseo({ projects: [] });
+
+    await expect(mod.issuesPage(api, prefs(), { owners: ["octo-org"], query: "", page: 1 })).rejects.toThrow(
+      "GitHub's search timed out",
+    );
+    expect(searches()).toHaveLength(2);
+
+    // A retry that answers is used; partial results that have issues are shown as they are.
+    fake.calls = [];
+    fake.gh = () =>
+      ++answers % 2
+        ? JSON.stringify({ total_count: 0, incomplete_results: true, items: [] })
+        : JSON.stringify({ total_count: 40, incomplete_results: true, items: [inRepo("octo-org/app", 3)] });
+    const result = await mod.issuesPage(api, prefs(), { owners: ["octo-org"], query: "", page: 1 });
+    expect(result.totalCount).toBe(40);
+    expect(searches()).toHaveLength(2);
+  });
+
   it("searches every owner at once, in the chosen order", async () => {
     fake.gh = ownersSearch([]);
     const { api } = fakePaseo({ projects: [] });
@@ -1123,6 +1144,17 @@ describe("assignedCounts", () => {
     expect(fields.q1).toBe("repo:octo/b is:issue is:open assignee:@me");
     expect(fields.query).toContain("r0: search(query: $q0, type: ISSUE, first: 0)");
     expect(fields.query).not.toContain("octo/");
+  });
+
+  it("counts across the All tab's owners in the same request, under *", async () => {
+    fake.gh = () => JSON.stringify({ data: { r0: { issueCount: 9 }, r1: { issueCount: 33 } } });
+
+    const result = await mod.assignedCounts({ repos: ["octo/a"], owners: ["octo-org", "octocat"] });
+
+    expect(result).toEqual({ counts: { "octo/a": 9, "*": 33 } });
+    const fields = searchFields(ghCalls("api graphql")[0].args);
+    expect(fields.q1).toBe("user:octo-org user:octocat is:issue is:open assignee:@me");
+    expect(ghCalls("api graphql")).toHaveLength(1);
   });
 
   it("makes no request without repositories", async () => {

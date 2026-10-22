@@ -335,10 +335,13 @@ export const filterOptionsRpc = defineRpc({
   }),
 });
 
-/** Open issues assigned to me per repository, for the project tabs; repositories GitHub refuses are left out. */
+/**
+ * Open issues assigned to me per repository, for the project tabs, and across `owners` under
+ * `ALL_TAB` for the All tab; repositories GitHub refuses are left out.
+ */
 export const assignedCountsRpc = defineRpc({
   name: "issues.assigned-counts",
-  input: z.object({ repos: z.array(z.string()).max(50) }),
+  input: z.object({ repos: z.array(z.string()).max(50), owners: owners.optional() }),
   output: z.object({ counts: z.record(z.string(), z.number()) }),
 });
 

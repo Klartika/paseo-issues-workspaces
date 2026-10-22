@@ -771,6 +771,20 @@ describe("issues screen: All tab", () => {
     ]);
   });
 
+  it("counts the issues assigned to me across the owners on the All tab", async () => {
+    const countRequests: unknown[] = [];
+    host.rpcs.set("issues.assigned-counts", async (input) => {
+      countRequests.push(input);
+      return { counts: { "octo-org/app": 2, "*": 33 } };
+    });
+    setUp();
+
+    const all = await screen.findByRole("tab", { name: /^All/ });
+    await waitFor(() => expect(within(all).getByText("33")).toBeTruthy());
+    expect(all.getAttribute("aria-label")).toBe("All (octo-org, octocat), 33 assigned to you");
+    expect(countRequests).toEqual([{ repos: ["octo-org/app"], owners }]);
+  });
+
   it("searches across the owners, names each repository, and saves the choice", async () => {
     const { saves, requests } = setUp();
     fireEvent.click(await screen.findByRole("tab", { name: /^All/ }));

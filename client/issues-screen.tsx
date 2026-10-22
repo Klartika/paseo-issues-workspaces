@@ -115,9 +115,10 @@ export function IssuesScreen({
   // Assigned-to-me counts for the tabs arrive separately, so they never hold up the page.
   const tabRepos = options.map((o) => o.repo);
   const counts = useQuery({
-    queryKey: [...COUNTS_QUERY_KEY, tabRepos.join(",")],
-    queryFn: () => fetchCounts({ repos: tabRepos }),
-    enabled: showTabs,
+    queryKey: [...COUNTS_QUERY_KEY, tabRepos.join(","), owners.join(",")],
+    queryFn: () => fetchCounts(owners.length ? { repos: tabRepos, owners } : { repos: tabRepos }),
+    // With owners the tabs show before the projects arrive; count once they have.
+    enabled: showTabs && projects.isSuccess,
     staleTime: 5 * 60_000,
   });
 
